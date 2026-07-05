@@ -1,35 +1,53 @@
 name: formtract
 description: "Real estate form management — forms made simple, close more deals."
-publish_to: 'none'
+publish_to: "none"
 version: 1.0.0+1
 
 environment:
   sdk: ^3.12.0
 
 dependencies:
+  cupertino_icons: ^1.0.8
   flutter:
     sdk: flutter
-  cupertino_icons: ^1.0.8
-  flutter_riverpod: ^2.6.1
-  hooks_riverpod: ^2.6.1
   flutter_hooks: ^0.21.3+1
+  flutter_riverpod: ^2.6.1
   go_router: ^15.0.0
+  hooks_riverpod: ^2.6.1
   intl: ^0.20.2
 
 dev_dependencies:
+  flutter_launcher_icons: ^0.14.3
+  flutter_lints: ^6.0.0
   flutter_test:
     sdk: flutter
-  flutter_lints: ^6.0.0
-  flutter_launcher_icons: ^0.14.3
 
 flutter_launcher_icons:
-  android: true
+  # ── Shared ──────────────────────────────────────────────────────────────────
+  image_path: "assets/icon/icon.png"
+
+  # ── Android ─────────────────────────────────────────────────────────────────
+  android: "launcher_icon"
+  # Adaptive icon (API 26+): foreground layer + background color
+  adaptive_icon_background: "#0D1B35"
+  adaptive_icon_foreground: "assets/icon/icon_fg.png"
+  # Android 13+ themed / monochrome icon
+  adaptive_icon_monochrome: "assets/icon/icon_mono.png"
+
+  # ── iOS ─────────────────────────────────────────────────────────────────────
   ios: true
   remove_alpha_ios: true
-  image_path: "assets/icon/icon.png"
+  # iOS 18+ dark mode alternate icon (semi-transparent dark bg)
+  image_path_ios_dark_transparent: "assets/icon/icon_dark.png"
+  # iOS 18+ tinted alternate icon (grayscale — system applies color tint)
+  image_path_ios_tinted_grayscale: "assets/icon/icon_tinted.png"
+
+  # ── Web ─────────────────────────────────────────────────────────────────────
   web:
     generate: true
     image_path: "assets/icon/icon.png"
+    background_color: "#0D1B35"
+    theme_color: "#2563EB"
 
 flutter:
   uses-material-design: true
