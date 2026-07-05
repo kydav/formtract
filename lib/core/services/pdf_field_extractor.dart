@@ -52,13 +52,24 @@ class PdfFieldExtractor {
     // PdfTextBoxField — classify by name keywords
     final l = name.toLowerCase();
     if (_has(l, ['email'])) return FormFieldType.email;
-    if (_has(l, ['phone', 'cell', 'fax', 'telephone'])) return FormFieldType.phone;
+    if (_has(l, ['phone', 'cell', 'fax', 'telephone'])) {
+      return FormFieldType.phone;
+    }
     if (_has(l, ['date', 'day', 'month', 'year'])) return FormFieldType.date;
     if (_has(l, ['initial'])) return FormFieldType.initials;
     if (_has(l, [
-      'amount', 'fee', 'price', 'percentage', 'commission',
-      'retainer', 'dollars', 'hourly', 'flat fee',
-    ])) return FormFieldType.number;
+      'amount',
+      'fee',
+      'price',
+      'percentage',
+      'commission',
+      'retainer',
+      'dollars',
+      'hourly',
+      'flat fee',
+    ])) {
+      return FormFieldType.number;
+    }
     return FormFieldType.text;
   }
 
@@ -79,7 +90,11 @@ class PdfFieldExtractor {
     return label
         .split(RegExp(r'\s+'))
         .where((w) => w.isNotEmpty)
-        .map((w) => w.length == 1 ? w.toUpperCase() : w[0].toUpperCase() + w.substring(1))
+        .map(
+          (w) => w.length == 1
+              ? w.toUpperCase()
+              : w[0].toUpperCase() + w.substring(1),
+        )
         .join(' ');
   }
 
@@ -115,17 +130,52 @@ class PdfFieldExtractor {
 
     if (_has(l, ['buyer', 'buyers', 'client'])) return 'Buyer Information';
     if (_has(l, [
-      'broker', 'brokerage', 'agent', 'firm', 'designated', 'managing', 'license',
-    ])) return 'Brokerage';
+      'broker',
+      'brokerage',
+      'agent',
+      'firm',
+      'designated',
+      'managing',
+      'license',
+    ])) {
+      return 'Brokerage';
+    }
     if (_has(l, [
-      'fee', 'commission', 'retainer', 'compensation', 'percentage',
-      'amount', 'dollars', 'hourly', 'flat fee', 'lease', 'success fee',
-      'purchase price', 'price range',
-    ])) return 'Compensation';
-    if (_has(l, ['date', 'period', 'term', 'expir', 'holdover', 'begin', 'start', 'end'])) {
+      'fee',
+      'commission',
+      'retainer',
+      'compensation',
+      'percentage',
+      'amount',
+      'dollars',
+      'hourly',
+      'flat fee',
+      'lease',
+      'success fee',
+      'purchase price',
+      'price range',
+    ])) {
+      return 'Compensation';
+    }
+    if (_has(l, [
+      'date',
+      'period',
+      'term',
+      'expir',
+      'holdover',
+      'begin',
+      'start',
+      'end',
+    ])) {
       return 'Agreement Terms';
     }
-    if (_has(l, ['provision', 'attachment', 'additional', 'confidential', 'showing'])) {
+    if (_has(l, [
+      'provision',
+      'attachment',
+      'additional',
+      'confidential',
+      'showing',
+    ])) {
       return 'Additional Provisions';
     }
     if (f.type == FormFieldType.checkbox || f.type == FormFieldType.radio) {

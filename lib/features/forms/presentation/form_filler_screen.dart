@@ -74,16 +74,20 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       final db = FirebaseFirestore.instance;
 
       // 1. Load template.
-      final templateSnap =
-          await db.collection('form_templates').doc(widget.templateId).get();
+      final templateSnap = await db
+          .collection('form_templates')
+          .doc(widget.templateId)
+          .get();
       if (!templateSnap.exists) throw Exception('Template not found.');
       final template = FormTemplate.fromFirestore(templateSnap);
 
       // 2. Load transaction if real.
       tx_model.Transaction? transaction;
       if (widget.txId != 'new') {
-        final txSnap =
-            await db.collection('transactions').doc(widget.txId).get();
+        final txSnap = await db
+            .collection('transactions')
+            .doc(widget.txId)
+            .get();
         if (txSnap.exists) {
           transaction = tx_model.Transaction.fromFirestore(txSnap);
         }
@@ -106,8 +110,8 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       }
 
       // 4. Create new draft if needed.
-      final filledForm = existing ??
-          await _createDraft(txId: widget.txId, template: template);
+      final filledForm =
+          existing ?? await _createDraft(txId: widget.txId, template: template);
 
       // 5. Seed initial values from draft + autofill.
       final values = Map<String, dynamic>.from(filledForm.fieldValues);
@@ -170,8 +174,14 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     final agent = ref.read(authNotifierProvider);
 
     // Pre-fill agent info by matching common field name patterns.
-    _fillMatching(values, template, ['broker name', 'agent name'], agent.userName);
-    _fillMatching(values, template, ['broker email', 'agent email'], agent.userEmail);
+    _fillMatching(values, template, [
+      'broker name',
+      'agent name',
+    ], agent.userName);
+    _fillMatching(values, template, [
+      'broker email',
+      'agent email',
+    ], agent.userEmail);
   }
 
   void _fillMatching(
@@ -192,19 +202,18 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   }
 
   static bool _isTextField(FormFieldType type) => switch (type) {
-        FormFieldType.text ||
-        FormFieldType.email ||
-        FormFieldType.phone ||
-        FormFieldType.date ||
-        FormFieldType.number ||
-        FormFieldType.initials =>
-          true,
-        _ => false,
-      };
+    FormFieldType.text ||
+    FormFieldType.email ||
+    FormFieldType.phone ||
+    FormFieldType.date ||
+    FormFieldType.number ||
+    FormFieldType.initials => true,
+    _ => false,
+  };
 
   // ── Auto-save ──────────────────────────────────────────────────────────────
 
-  void _onFieldChanged(String fieldId, dynamic value) {
+  void _onFieldChanged(String fieldId, value) {
     setState(() => _values[fieldId] = value);
     _scheduleSave();
   }
@@ -257,7 +266,8 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       final stamped = PdfStamper.stamp(pdfBytes, _values);
 
       // Upload stamped PDF.
-      final agentId = agent?.id ?? ref.read(authNotifierProvider).currentUser!.uid;
+      final agentId =
+          agent?.id ?? ref.read(authNotifierProvider).currentUser!.uid;
       final storagePath = await StorageService.uploadCompletedForm(
         pdfBytes: stamped,
         agentId: agentId,
@@ -294,9 +304,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     if (_error != null) {
       return Scaffold(
@@ -332,8 +340,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(template.name,
-                style: Theme.of(context).textTheme.titleMedium),
+            Text(template.name, style: Theme.of(context).textTheme.titleMedium),
             Text(
               '${_step + 1} of ${steps.length} — ${currentStep.title}',
               style: Theme.of(context).textTheme.bodySmall,
@@ -356,7 +363,10 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Center(
-                child: Text('Saved', style: Theme.of(context).textTheme.bodySmall),
+                child: Text(
+                  'Saved',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ),
             ),
         ],
@@ -426,6 +436,7 @@ class _FormStepView extends StatelessWidget {
   final FormStep step;
   final Map<String, dynamic> values;
   final Map<String, TextEditingController> controllers;
+  // ignore: avoid_annotating_with_dynamic
   final void Function(String fieldId, dynamic value) onChanged;
 
   const _FormStepView({
@@ -450,15 +461,17 @@ class _FormStepView extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const Divider(height: 24),
-            ...step.fields.map((field) => Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _FieldWidget(
-                    field: field,
-                    value: values[field.id],
-                    controller: controllers[field.id],
-                    onChanged: (v) => onChanged(field.id, v),
-                  ),
-                )),
+            ...step.fields.map(
+              (field) => Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _FieldWidget(
+                  field: field,
+                  value: values[field.id],
+                  controller: controllers[field.id],
+                  onChanged: (v) => onChanged(field.id, v),
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -483,23 +496,23 @@ class _FieldWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     return switch (field.type) {
       FormFieldType.checkbox => _CheckboxField(
-          label: field.label,
-          value: value == true || value.toString() == 'true',
-          onChanged: onChanged,
-        ),
+        label: field.label,
+        value: value == true || value.toString() == 'true',
+        onChanged: onChanged,
+      ),
       FormFieldType.signature => _SignaturePlaceholder(label: field.label),
       FormFieldType.dropdown => _DropdownField(
-          label: field.label,
-          options: field.options,
-          value: value?.toString(),
-          onChanged: onChanged,
-        ),
+        label: field.label,
+        options: field.options,
+        value: value?.toString(),
+        onChanged: onChanged,
+      ),
       _ => _TextField(
-          label: field.label,
-          type: field.type,
-          controller: controller!,
-          onChanged: onChanged,
-        ),
+        label: field.label,
+        type: field.type,
+        controller: controller!,
+        onChanged: onChanged,
+      ),
     };
   }
 }
@@ -525,7 +538,9 @@ class _TextField extends StatelessWidget {
       keyboardType: switch (type) {
         FormFieldType.email => TextInputType.emailAddress,
         FormFieldType.phone => TextInputType.phone,
-        FormFieldType.number => const TextInputType.numberWithOptions(decimal: true),
+        FormFieldType.number => const TextInputType.numberWithOptions(
+          decimal: true,
+        ),
         _ => TextInputType.text,
       },
       textCapitalization: type == FormFieldType.initials
@@ -584,8 +599,10 @@ class _DropdownField extends StatelessWidget {
     }
     return DropdownButtonFormField<String>(
       decoration: InputDecoration(labelText: label),
-      value: options.contains(value) ? value : null,
-      items: options.map((o) => DropdownMenuItem(value: o, child: Text(o))).toList(),
+      initialValue: options.contains(value) ? value : null,
+      items: options
+          .map((o) => DropdownMenuItem(value: o, child: Text(o)))
+          .toList(),
       onChanged: (v) => onChanged(v ?? ''),
     );
   }
@@ -613,10 +630,16 @@ class _SignaturePlaceholder extends StatelessWidget {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.draw_outlined, color: kTextSecondary, size: 18),
+                const Icon(
+                  Icons.draw_outlined,
+                  color: kTextSecondary,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
-                Text('Signature capture — coming soon',
-                    style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  'Signature capture — coming soon',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ],
             ),
           ),
@@ -648,7 +671,11 @@ class _BottomBar extends StatelessWidget {
     return Container(
       color: Colors.white,
       padding: EdgeInsets.fromLTRB(
-          16, 12, 16, 12 + MediaQuery.of(context).padding.bottom),
+        16,
+        12,
+        16,
+        12 + MediaQuery.of(context).padding.bottom,
+      ),
       child: Row(
         children: [
           if (!isFirst)
@@ -663,9 +690,13 @@ class _BottomBar extends StatelessWidget {
               onPressed: isGenerating ? null : onGenerate,
               icon: isGenerating
                   ? const SizedBox(
-                      width: 16, height: 16,
+                      width: 16,
+                      height: 16,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white))
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
                   : const Icon(Icons.picture_as_pdf, size: 18),
               label: const Text('Generate PDF'),
               style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
@@ -715,25 +746,29 @@ class _DoneScreen extends StatelessWidget {
                   color: kSuccessGreen.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.check_circle_outline,
-                    color: kSuccessGreen, size: 36),
+                child: const Icon(
+                  Icons.check_circle_outline,
+                  color: kSuccessGreen,
+                  size: 36,
+                ),
               ),
               const SizedBox(height: 20),
-              Text('PDF Generated!',
-                  style: Theme.of(context).textTheme.headlineMedium),
+              Text(
+                'PDF Generated!',
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
               const SizedBox(height: 8),
               Text(
                 templateName,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: kTextSecondary),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
               FilledButton.icon(
                 onPressed: () {
-                  // TODO: share/open PDF (Phase 3 — share_plus)
+                  // TODO(kyler): share/open PDF (Phase 3 — share_plus)
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Share coming in Phase 3.')),
                   );
@@ -742,10 +777,7 @@ class _DoneScreen extends StatelessWidget {
                 label: const Text('Share PDF'),
               ),
               const SizedBox(height: 12),
-              OutlinedButton(
-                onPressed: onClose,
-                child: const Text('Done'),
-              ),
+              OutlinedButton(onPressed: onClose, child: const Text('Done')),
             ],
           ),
         ),

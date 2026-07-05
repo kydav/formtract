@@ -13,7 +13,8 @@ class TemplatesScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final agentAsync = ref.watch(agentProfileProvider);
     return agentAsync.when(
-      loading: () => const _Shell(child: Center(child: CircularProgressIndicator())),
+      loading: () =>
+          const _Shell(child: Center(child: CircularProgressIndicator())),
       error: (e, _) => _Shell(child: Center(child: Text('Error: $e'))),
       data: (agent) => agent == null
           ? const _Shell(child: SizedBox.shrink())
@@ -39,7 +40,10 @@ class _Shell extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
             child: Row(
               children: [
-                Text('Templates', style: Theme.of(context).textTheme.headlineSmall),
+                Text(
+                  'Templates',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
               ],
             ),
           ),
@@ -68,17 +72,20 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
     try {
       final count = await TemplateService.seedTestTemplates(widget.boardId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(count == 0
-            ? 'Templates already seeded.'
-            : 'Seeded $count test templates.'),
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            count == 0
+                ? 'Templates already seeded.'
+                : 'Seeded $count test templates.',
+          ),
+        ),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Seed failed: $e'),
-        backgroundColor: Colors.red,
-      ));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Seed failed: $e'), backgroundColor: Colors.red),
+      );
     } finally {
       if (mounted) setState(() => _seeding = false);
     }
@@ -97,8 +104,10 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
             padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
             child: Row(
               children: [
-                Text('Templates',
-                    style: Theme.of(context).textTheme.headlineSmall),
+                Text(
+                  'Templates',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
                 const Spacer(),
                 OutlinedButton.icon(
                   onPressed: _seeding ? null : _seedTemplates,
@@ -152,19 +161,23 @@ class _EmptyState extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: kBorderColor),
               ),
-              child: const Icon(Icons.description_outlined,
-                  color: kTextSecondary, size: 28),
+              child: const Icon(
+                Icons.description_outlined,
+                color: kTextSecondary,
+                size: 28,
+              ),
             ),
             const SizedBox(height: 16),
-            Text('No Templates Yet',
-                style: Theme.of(context).textTheme.titleLarge),
+            Text(
+              'No Templates Yet',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
             const SizedBox(height: 8),
             Text(
               'Seed the four test forms to get started, or upload your own PDFs.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: kTextSecondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -175,7 +188,9 @@ class _EmptyState extends StatelessWidget {
                       width: 14,
                       height: 14,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
                     )
                   : const Icon(Icons.science_outlined, size: 18),
               label: const Text('Seed Test Forms'),
@@ -198,7 +213,7 @@ class _TemplateList extends StatelessWidget {
     return ListView.separated(
       padding: const EdgeInsets.all(16),
       itemCount: templates.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
       itemBuilder: (context, i) => _TemplateCard(template: templates[i]),
     );
   }
@@ -211,7 +226,9 @@ class _TemplateCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final totalFields = template.steps.fold<int>(
-      0, (sum, step) => sum + step.fields.length);
+      0,
+      (sum, step) => sum + step.fields.length,
+    );
 
     return Card(
       child: Padding(
@@ -225,16 +242,21 @@ class _TemplateCard extends StatelessWidget {
                 color: kBlueAccent.withValues(alpha: 0.08),
                 borderRadius: BorderRadius.circular(10),
               ),
-              child: const Icon(Icons.picture_as_pdf_outlined,
-                  color: kBlueAccent, size: 22),
+              child: const Icon(
+                Icons.picture_as_pdf_outlined,
+                color: kBlueAccent,
+                size: 22,
+              ),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(template.name,
-                      style: Theme.of(context).textTheme.titleMedium),
+                  Text(
+                    template.name,
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
                   const SizedBox(height: 4),
                   Row(
                     children: [
@@ -287,11 +309,7 @@ class _Chip extends StatelessWidget {
       ),
       child: Text(
         label,
-        style: TextStyle(
-          fontSize: 11,
-          color: c,
-          fontWeight: FontWeight.w600,
-        ),
+        style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600),
       ),
     );
   }
