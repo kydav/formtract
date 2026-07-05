@@ -1,13 +1,12 @@
 name: Deploy Web
 
-# Deploys Flutter web to Firebase Hosting on every push to main.
+# Deploys Flutter web to Firebase Hosting manually (workflow_dispatch).
 #
-# Required GitHub secret:
-#   FIREBASE_SERVICE_ACCOUNT — JSON key for a GCP service account with the
-#     "Firebase Hosting Admin" role.
-#     Get it: Firebase Console → Project Settings → Service accounts →
-#             Generate new private key (or run `firebase init hosting` and
-#             select "Set up GitHub Actions" to auto-create the secret).
+# Required GitHub secrets:
+#   FIREBASE_SERVICE_ACCOUNT    — JSON key for a GCP service account with the
+#                                 "Firebase Hosting Admin" role.
+#   FIREBASE_OPTIONS_DART_B64   — base64-encoded lib/firebase_options.dart
+#                                 Generate: base64 -i lib/firebase_options.dart | pbcopy
 
 on:
   workflow_dispatch:
@@ -24,6 +23,9 @@ jobs:
         with:
           channel: stable
           cache: true
+
+      - name: Write firebase_options.dart
+        run: echo "${{ secrets.FIREBASE_OPTIONS_DART_B64 }}" | base64 --decode > lib/firebase_options.dart
 
       - name: Install dependencies
         run: flutter pub get
