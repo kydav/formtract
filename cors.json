@@ -1,0 +1,12 @@
+[
+  {
+    "origin": [
+      "https://formtract.web.app",
+      "https://formtract.firebaseapp.com",
+      "http://localhost:*"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Disposition"],
+    "maxAgeSeconds": 3600
+  }
+]
