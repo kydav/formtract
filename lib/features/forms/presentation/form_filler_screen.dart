@@ -152,15 +152,27 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     required String txId,
     required FormTemplate template,
   }) async {
-    final effectiveTxId = txId == 'new' ? 'standalone' : txId;
+    // Standalone fills (no transaction) are in-memory only — no Firestore write
+    // because the filled_forms subcollection rule requires a parent transaction
+    // document, which doesn't exist for the standalone path.
+    if (txId == 'new') {
+      return FilledForm(
+        id: 'standalone-${DateTime.now().millisecondsSinceEpoch}',
+        transactionId: 'standalone',
+        templateId: template.id,
+        templateName: template.name,
+        createdAt: DateTime.now(),
+        updatedAt: DateTime.now(),
+      );
+    }
     final formId = await createFilledForm(
-      txId: effectiveTxId,
+      txId: txId,
       templateId: template.id,
       templateName: template.name,
     );
     return FilledForm(
       id: formId,
-      transactionId: effectiveTxId,
+      transactionId: txId,
       templateId: template.id,
       templateName: template.name,
       createdAt: DateTime.now(),
@@ -227,7 +239,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
 
   Future<void> _save() async {
     final form = _filledForm;
-    if (form == null) return;
+    if (form == null || form.transactionId == 'standalone') return;
     setState(() => _isSaving = true);
     try {
       // Uint8List (signature bytes) can't be stored in Firestore — skip them.
@@ -280,8 +292,10 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
         filledFormId: form.id,
       );
 
-      // Mark FilledForm as complete.
-      await completeFilledForm(form.transactionId, form.id, storagePath);
+      // Mark FilledForm as complete (skip for standalone — no parent tx doc).
+      if (form.transactionId != 'standalone') {
+        await completeFilledForm(form.transactionId, form.id, storagePath);
+      }
 
       // Get download URL for share/preview.
       final url = await StorageService.completedFormDownloadUrl(
