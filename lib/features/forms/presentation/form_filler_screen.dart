@@ -118,7 +118,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       // 5. Seed initial values from draft + autofill.
       final values = Map<String, dynamic>.from(filledForm.fieldValues);
       if (existing == null) {
-        _autofill(values, template, transaction);
+        await _autofill(values, template, transaction);
       }
 
       // 6. Build text controllers.
@@ -180,14 +180,13 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     );
   }
 
-  void _autofill(
+  Future<void> _autofill(
     Map<String, dynamic> values,
     FormTemplate template,
     tx_model.Transaction? transaction,
-  ) {
+  ) async {
     final agent = ref.read(authNotifierProvider);
 
-    // Pre-fill agent info by matching common field name patterns.
     _fillMatching(values, template, [
       'broker name',
       'agent name',
@@ -196,6 +195,50 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       'broker email',
       'agent email',
     ], agent.userEmail);
+
+    // Pre-fill buyer info from the linked contact.
+    if (transaction?.buyerContactId != null &&
+        transaction!.buyerContactId!.isNotEmpty) {
+      final buyer = await fetchContact(transaction.buyerContactId!);
+      if (buyer != null) {
+        _fillMatching(values, template, [
+          'buyer name',
+          'purchaser name',
+          'client name',
+        ], buyer.fullName);
+        _fillMatching(values, template, [
+          'buyer first',
+          'purchaser first',
+          'client first',
+        ], buyer.firstName);
+        _fillMatching(values, template, [
+          'buyer last',
+          'purchaser last',
+          'client last',
+        ], buyer.lastName);
+        if (buyer.email != null) {
+          _fillMatching(values, template, [
+            'buyer email',
+            'purchaser email',
+            'client email',
+          ], buyer.email!);
+        }
+        if (buyer.phone != null) {
+          _fillMatching(values, template, [
+            'buyer phone',
+            'purchaser phone',
+            'client phone',
+          ], buyer.phone!);
+        }
+        if (buyer.fullAddress != null) {
+          _fillMatching(values, template, [
+            'buyer address',
+            'purchaser address',
+            'mailing address',
+          ], buyer.fullAddress!);
+        }
+      }
+    }
   }
 
   void _fillMatching(

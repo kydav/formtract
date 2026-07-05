@@ -76,6 +76,16 @@ final transactionsProvider = StreamProvider<List<tx_model.Transaction>>((ref) {
       .map((s) => s.docs.map(tx_model.Transaction.fromFirestore).toList());
 });
 
+/// A single transaction by ID.
+final transactionByIdProvider =
+    StreamProvider.family<tx_model.Transaction?, String>((ref, txId) {
+  return _db
+      .collection('transactions')
+      .doc(txId)
+      .snapshots()
+      .map((s) => s.exists ? tx_model.Transaction.fromFirestore(s) : null);
+});
+
 Future<String> createTransaction(tx_model.Transaction transaction) async {
   final ref = await _db.collection('transactions').add(transaction.toFirestore());
   return ref.id;
@@ -87,6 +97,18 @@ Future<void> updateTransactionStatus(
     'status': status.name,
     'updatedAt': FieldValue.serverTimestamp(),
   });
+}
+
+Future<void> updateTransactionContact(
+    String txId, {String? buyerContactId}) async {
+  await _db.collection('transactions').doc(txId).update({
+    if (buyerContactId != null) 'buyerContactId': buyerContactId,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+Future<void> deleteTransaction(String txId) async {
+  await _db.collection('transactions').doc(txId).delete();
 }
 
 // ─── Contacts ─────────────────────────────────────────────────────────────────
@@ -103,6 +125,17 @@ final contactsProvider = StreamProvider<List<Contact>>((ref) {
       .map((s) => s.docs.map(Contact.fromFirestore).toList());
 });
 
+/// A single contact by ID.
+final contactByIdProvider =
+    StreamProvider.family<Contact?, String>((ref, contactId) {
+  if (contactId.isEmpty) return Stream.value(null);
+  return _db
+      .collection('contacts')
+      .doc(contactId)
+      .snapshots()
+      .map((s) => s.exists ? Contact.fromFirestore(s) : null);
+});
+
 Future<String> createContact(Contact contact) async {
   final ref = await _db.collection('contacts').add(contact.toFirestore());
   return ref.id;
@@ -110,6 +143,10 @@ Future<String> createContact(Contact contact) async {
 
 Future<void> updateContact(Contact contact) async {
   await _db.collection('contacts').doc(contact.id).update(contact.toFirestore());
+}
+
+Future<void> deleteContact(String contactId) async {
+  await _db.collection('contacts').doc(contactId).delete();
 }
 
 // ─── Form templates ───────────────────────────────────────────────────────────
