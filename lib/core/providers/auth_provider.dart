@@ -1,35 +1,42 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class AuthNotifier extends ChangeNotifier {
-  bool _isLoggedIn = false;
-  String _userEmail = '';
-  String _userName = '';
+  final _auth = FirebaseAuth.instance;
 
-  bool get isLoggedIn => _isLoggedIn;
-  String get userEmail => _userEmail;
-  String get userName => _userName;
+  AuthNotifier() {
+    _auth.authStateChanges().listen((_) => notifyListeners());
+  }
+
+  bool get isLoggedIn => _auth.currentUser != null;
+  User? get currentUser => _auth.currentUser;
+  String get userEmail => _auth.currentUser?.email ?? '';
+
+  String get userName {
+    final user = _auth.currentUser;
+    if (user?.displayName?.isNotEmpty ?? false) return user!.displayName!;
+    final email = user?.email ?? '';
+    return email.isNotEmpty ? email.split('@').first : 'User';
+  }
+
   String get userInitials {
-    final parts = _userName.trim().split(' ');
+    final parts = userName.trim().split(' ');
     if (parts.length >= 2) return '${parts.first[0]}${parts.last[0]}'.toUpperCase();
-    if (_userName.isNotEmpty) return _userName[0].toUpperCase();
-    if (_userEmail.isNotEmpty) return _userEmail[0].toUpperCase();
+    if (userName.isNotEmpty) return userName[0].toUpperCase();
     return 'U';
   }
 
-  void login({required String email, String name = ''}) {
-    _isLoggedIn = true;
-    _userEmail = email;
-    _userName = name.isNotEmpty ? name : email.split('@').first;
-    notifyListeners();
-  }
+  Future<void> signIn({required String email, required String password}) =>
+      _auth.signInWithEmailAndPassword(email: email, password: password);
 
-  void logout() {
-    _isLoggedIn = false;
-    _userEmail = '';
-    _userName = '';
-    notifyListeners();
-  }
+  Future<void> signUp({required String email, required String password}) =>
+      _auth.createUserWithEmailAndPassword(email: email, password: password);
+
+  Future<void> sendPasswordReset(String email) =>
+      _auth.sendPasswordResetEmail(email: email);
+
+  Future<void> signOut() => _auth.signOut();
 }
 
 final authNotifierProvider = ChangeNotifierProvider<AuthNotifier>(

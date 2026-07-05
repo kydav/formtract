@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _passwordCtrl = TextEditingController();
   bool _loading = false;
   bool _obscure = true;
+  bool _isSignUp = false;
   String? _error;
 
   @override
@@ -32,13 +34,55 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _loading = true;
       _error = null;
     });
-    // TODO(kydav): replace with Firebase Auth in Phase 2
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    TextInput.finishAutofillContext();
-    ref.read(authNotifierProvider).login(email: _emailCtrl.text.trim());
-    setState(() => _loading = false);
+    try {
+      final auth = ref.read(authNotifierProvider);
+      final email = _emailCtrl.text.trim();
+      final password = _passwordCtrl.text;
+      if (_isSignUp) {
+        await auth.signUp(email: email, password: password);
+      } else {
+        await auth.signIn(email: email, password: password);
+      }
+      TextInput.finishAutofillContext();
+      // GoRouter redirect handles navigation automatically via authStateChanges
+    } on FirebaseAuthException catch (e) {
+      if (mounted) setState(() => _error = _friendlyError(e.code));
+    } catch (e) {
+      if (mounted) setState(() => _error = 'Something went wrong. Please try again.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
+
+  Future<void> _forgotPassword() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) {
+      setState(() => _error = 'Enter your email address above first.');
+      return;
+    }
+    try {
+      await ref.read(authNotifierProvider).sendPasswordReset(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password reset email sent.')),
+        );
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) setState(() => _error = _friendlyError(e.code));
+    }
+  }
+
+  String _friendlyError(String code) => switch (code) {
+    'user-not-found'          => 'No account found with that email.',
+    'wrong-password'          => 'Incorrect password.',
+    'invalid-credential'      => 'Incorrect email or password.',
+    'email-already-in-use'    => 'An account already exists with that email.',
+    'invalid-email'           => 'Enter a valid email address.',
+    'weak-password'           => 'Password must be at least 6 characters.',
+    'too-many-requests'       => 'Too many attempts. Try again later.',
+    'network-request-failed'  => 'Network error. Check your connection.',
+    _                         => 'Something went wrong. Please try again.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -61,11 +105,16 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       emailCtrl: _emailCtrl,
                       passwordCtrl: _passwordCtrl,
                       obscure: _obscure,
-                      onToggleObscure: () =>
-                          setState(() => _obscure = !_obscure),
+                      isSignUp: _isSignUp,
                       loading: _loading,
                       error: _error,
+                      onToggleObscure: () => setState(() => _obscure = !_obscure),
+                      onToggleMode: () => setState(() {
+                        _isSignUp = !_isSignUp;
+                        _error = null;
+                      }),
                       onSubmit: _submit,
+                      onForgotPassword: _forgotPassword,
                     ),
                   ],
                 ),
@@ -77,6 +126,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     );
   }
 }
+
+// ─── Logo ─────────────────────────────────────────────────────────────────────
 
 class _Logo extends StatelessWidget {
   @override
@@ -90,14 +141,20 @@ class _Logo extends StatelessWidget {
             color: kBlueAccent,
             borderRadius: BorderRadius.circular(18),
           ),
-          child: const Center(
-            child: Text(
-              'F',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 38,
-                fontWeight: FontWeight.bold,
-                letterSpacing: -1,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(18),
+            child: Image.asset(
+              'assets/icon/icon.png',
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => const Center(
+                child: Text(
+                  'F',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 38,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ),
           ),
@@ -126,23 +183,31 @@ class _Logo extends StatelessWidget {
   }
 }
 
+// ─── Form card ────────────────────────────────────────────────────────────────
+
 class _FormCard extends StatelessWidget {
   final TextEditingController emailCtrl;
   final TextEditingController passwordCtrl;
   final bool obscure;
+  final bool isSignUp;
   final bool loading;
   final String? error;
   final VoidCallback onToggleObscure;
+  final VoidCallback onToggleMode;
   final VoidCallback onSubmit;
+  final VoidCallback onForgotPassword;
 
   const _FormCard({
     required this.emailCtrl,
     required this.passwordCtrl,
     required this.obscure,
+    required this.isSignUp,
     required this.loading,
     required this.error,
     required this.onToggleObscure,
+    required this.onToggleMode,
     required this.onSubmit,
+    required this.onForgotPassword,
   });
 
   @override
@@ -157,86 +222,41 @@ class _FormCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'Sign in to your account',
-            style: TextStyle(
+          Text(
+            isSignUp ? 'Create your account' : 'Sign in to your account',
+            style: const TextStyle(
               color: Colors.white,
               fontSize: 18,
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 20),
-          TextFormField(
+          _DarkField(
             controller: emailCtrl,
+            label: 'Email',
             keyboardType: TextInputType.emailAddress,
             textInputAction: TextInputAction.next,
-            autocorrect: false,
             autofillHints: const [AutofillHints.email],
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Email',
-              labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-              fillColor: Colors.white.withValues(alpha: 0.07),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.15),
-                ),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: kBlueAccent, width: 2),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Colors.redAccent),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Colors.redAccent, width: 2),
-              ),
-            ),
             validator: (v) =>
                 (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
           ),
           const SizedBox(height: 14),
-          TextFormField(
+          _DarkField(
             controller: passwordCtrl,
+            label: 'Password',
             obscureText: obscure,
             textInputAction: TextInputAction.done,
+            autofillHints: isSignUp
+                ? const [AutofillHints.newPassword]
+                : const [AutofillHints.password],
             onFieldSubmitted: (_) => onSubmit(),
-            autofillHints: const [AutofillHints.password],
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Password',
-              labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
-              fillColor: Colors.white.withValues(alpha: 0.07),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.15),
-                ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                obscure ? Icons.visibility_off : Icons.visibility,
+                color: Colors.white.withValues(alpha: 0.5),
+                size: 20,
               ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: kBlueAccent, width: 2),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Colors.redAccent),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: const BorderSide(color: Colors.redAccent, width: 2),
-              ),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  obscure ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.white.withValues(alpha: 0.5),
-                  size: 20,
-                ),
-                onPressed: onToggleObscure,
-              ),
+              onPressed: onToggleObscure,
             ),
             validator: (v) =>
                 (v == null || v.length < 6) ? 'Min 6 characters' : null,
@@ -265,21 +285,90 @@ class _FormCard extends StatelessWidget {
                       color: Colors.white,
                     ),
                   )
-                : const Text('Sign in'),
+                : Text(isSignUp ? 'Create account' : 'Sign in'),
           ),
-          const SizedBox(height: 12),
+          if (!isSignUp) ...[
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: onForgotPassword,
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white.withValues(alpha: 0.55),
+              ),
+              child: const Text('Forgot password?', style: TextStyle(fontSize: 13)),
+            ),
+          ],
+          const SizedBox(height: 4),
           TextButton(
-            onPressed: () {},
+            onPressed: onToggleMode,
             style: TextButton.styleFrom(
               foregroundColor: Colors.white.withValues(alpha: 0.55),
             ),
-            child: const Text(
-              'Forgot password?',
-              style: TextStyle(fontSize: 13),
+            child: Text(
+              isSignUp
+                  ? 'Already have an account? Sign in'
+                  : "Don't have an account? Sign up",
+              style: const TextStyle(fontSize: 13),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─── Reusable dark-themed text field ──────────────────────────────────────────
+
+class _DarkField extends StatelessWidget {
+  final TextEditingController controller;
+  final String label;
+  final TextInputType? keyboardType;
+  final TextInputAction? textInputAction;
+  final List<String>? autofillHints;
+  final bool obscureText;
+  final Widget? suffixIcon;
+  final String? Function(String?)? validator;
+  final void Function(String)? onFieldSubmitted;
+
+  const _DarkField({
+    required this.controller,
+    required this.label,
+    this.keyboardType,
+    this.textInputAction,
+    this.autofillHints,
+    this.obscureText = false,
+    this.suffixIcon,
+    this.validator,
+    this.onFieldSubmitted,
+  });
+
+  OutlineInputBorder _border(Color color, {double width = 1}) =>
+      OutlineInputBorder(
+        borderRadius: BorderRadius.circular(8),
+        borderSide: BorderSide(color: color, width: width),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      textInputAction: textInputAction,
+      autofillHints: autofillHints,
+      obscureText: obscureText,
+      autocorrect: false,
+      onFieldSubmitted: onFieldSubmitted,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+        fillColor: Colors.white.withValues(alpha: 0.07),
+        enabledBorder: _border(Colors.white.withValues(alpha: 0.15)),
+        focusedBorder: _border(kBlueAccent, width: 2),
+        errorBorder: _border(Colors.redAccent),
+        focusedErrorBorder: _border(Colors.redAccent, width: 2),
+        suffixIcon: suffixIcon,
+      ),
+      validator: validator,
     );
   }
 }

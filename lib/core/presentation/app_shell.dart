@@ -230,7 +230,7 @@ class _Sidebar extends ConsumerWidget {
                       size: 16,
                       color: Colors.white.withValues(alpha: 0.4),
                     ),
-                    onPressed: () => ref.read(authNotifierProvider).logout(),
+                    onPressed: () => ref.read(authNotifierProvider).signOut(),
                     padding: EdgeInsets.zero,
                     constraints: const BoxConstraints(),
                     tooltip: 'Sign out',
