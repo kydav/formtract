@@ -17,7 +17,6 @@ class AppTheme {
     useMaterial3: true,
     colorScheme: ColorScheme.fromSeed(
       seedColor: kBlueAccent,
-      brightness: Brightness.light,
       primary: kBlueAccent,
       surface: Colors.white,
       onSurface: kTextPrimary,

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:formtract/core/presentation/app_shell.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
 import 'package:formtract/features/auth/presentation/login_screen.dart';
@@ -8,6 +7,7 @@ import 'package:formtract/features/contacts/presentation/contacts_screen.dart';
 import 'package:formtract/features/dashboard/presentation/dashboard_screen.dart';
 import 'package:formtract/features/templates/presentation/templates_screen.dart';
 import 'package:formtract/features/transactions/presentation/transactions_screen.dart';
+import 'package:go_router/go_router.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   final authNotifier = ref.read(authNotifierProvider);

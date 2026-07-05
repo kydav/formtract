@@ -49,7 +49,7 @@ class _TopBar extends StatelessWidget {
         children: [
           Text(title, style: Theme.of(context).textTheme.headlineSmall),
           const Spacer(),
-          if (action != null) action!,
+          ?action,
         ],
       ),
     );

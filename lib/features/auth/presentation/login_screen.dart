@@ -32,7 +32,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _loading = true;
       _error = null;
     });
-    // TODO: replace with Firebase Auth in Phase 2
+    // TODO(kydav): replace with Firebase Auth in Phase 2
     await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
     TextInput.finishAutofillContext();
@@ -61,7 +61,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       emailCtrl: _emailCtrl,
                       passwordCtrl: _passwordCtrl,
                       obscure: _obscure,
-                      onToggleObscure: () => setState(() => _obscure = !_obscure),
+                      onToggleObscure: () =>
+                          setState(() => _obscure = !_obscure),
                       loading: _loading,
                       error: _error,
                       onSubmit: _submit,
@@ -115,7 +116,7 @@ class _Logo extends StatelessWidget {
         Text(
           'Form management for real estate pros',
           style: TextStyle(
-            color: Colors.white.withOpacity(0.55),
+            color: Colors.white.withValues(alpha: 0.55),
             fontSize: 14,
           ),
           textAlign: TextAlign.center,
@@ -150,7 +151,7 @@ class _FormCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: kNavyMed,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.08)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
       ),
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -174,11 +175,13 @@ class _FormCard extends StatelessWidget {
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               labelText: 'Email',
-              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-              fillColor: Colors.white.withOpacity(0.07),
+              labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+              fillColor: Colors.white.withValues(alpha: 0.07),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+                borderSide: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.15),
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -206,11 +209,13 @@ class _FormCard extends StatelessWidget {
             style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               labelText: 'Password',
-              labelStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-              fillColor: Colors.white.withOpacity(0.07),
+              labelStyle: TextStyle(color: Colors.white.withValues(alpha: 0.6)),
+              fillColor: Colors.white.withValues(alpha: 0.07),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide(color: Colors.white.withOpacity(0.15)),
+                borderSide: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.15),
+                ),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(8),
@@ -227,7 +232,7 @@ class _FormCard extends StatelessWidget {
               suffixIcon: IconButton(
                 icon: Icon(
                   obscure ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.white.withOpacity(0.5),
+                  color: Colors.white.withValues(alpha: 0.5),
                   size: 20,
                 ),
                 onPressed: onToggleObscure,
@@ -249,7 +254,7 @@ class _FormCard extends StatelessWidget {
             onPressed: loading ? null : onSubmit,
             style: FilledButton.styleFrom(
               backgroundColor: kBlueAccent,
-              disabledBackgroundColor: kBlueAccent.withOpacity(0.5),
+              disabledBackgroundColor: kBlueAccent.withValues(alpha: 0.5),
             ),
             child: loading
                 ? const SizedBox(
@@ -266,9 +271,12 @@ class _FormCard extends StatelessWidget {
           TextButton(
             onPressed: () {},
             style: TextButton.styleFrom(
-              foregroundColor: Colors.white.withOpacity(0.55),
+              foregroundColor: Colors.white.withValues(alpha: 0.55),
             ),
-            child: const Text('Forgot password?', style: TextStyle(fontSize: 13)),
+            child: const Text(
+              'Forgot password?',
+              style: TextStyle(fontSize: 13),
+            ),
           ),
         ],
       ),

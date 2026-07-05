@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
 import 'package:formtract/core/theme/app_theme.dart';
+import 'package:go_router/go_router.dart';
 
 class AppShell extends ConsumerWidget {
   final String location;
@@ -216,7 +216,7 @@ class _Sidebar extends ConsumerWidget {
                         Text(
                           auth.userEmail,
                           style: TextStyle(
-                            color: Colors.white.withOpacity(0.4),
+                            color: Colors.white.withValues(alpha: 0.4),
                             fontSize: 11,
                           ),
                           overflow: TextOverflow.ellipsis,
@@ -228,7 +228,7 @@ class _Sidebar extends ConsumerWidget {
                     icon: Icon(
                       Icons.logout,
                       size: 16,
-                      color: Colors.white.withOpacity(0.4),
+                      color: Colors.white.withValues(alpha: 0.4),
                     ),
                     onPressed: () => ref.read(authNotifierProvider).logout(),
                     padding: EdgeInsets.zero,
@@ -261,12 +261,12 @@ class _SidebarNavItem extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: Material(
-        color: active ? Colors.white.withOpacity(0.1) : Colors.transparent,
+        color: active ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
         borderRadius: BorderRadius.circular(8),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(8),
-          hoverColor: Colors.white.withOpacity(0.06),
+          hoverColor: Colors.white.withValues(alpha: 0.06),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
@@ -275,7 +275,7 @@ class _SidebarNavItem extends StatelessWidget {
                   active ? item.activeIcon : item.icon,
                   color: active
                       ? Colors.white
-                      : Colors.white.withOpacity(0.55),
+                      : Colors.white.withValues(alpha: 0.55),
                   size: 20,
                 ),
                 const SizedBox(width: 12),
@@ -284,7 +284,7 @@ class _SidebarNavItem extends StatelessWidget {
                   style: TextStyle(
                     color: active
                         ? Colors.white
-                        : Colors.white.withOpacity(0.55),
+                        : Colors.white.withValues(alpha: 0.55),
                     fontSize: 14,
                     fontWeight: active ? FontWeight.w600 : FontWeight.normal,
                   ),
@@ -399,7 +399,7 @@ class _FloatingBottomNav extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.22),
+            color: Colors.black.withValues(alpha: 0.22),
             blurRadius: 24,
             offset: const Offset(0, 8),
           ),
@@ -432,7 +432,7 @@ class _FloatingBottomNav extends StatelessWidget {
                 borderRadius: BorderRadius.circular(14),
                 boxShadow: [
                   BoxShadow(
-                    color: kBlueAccent.withOpacity(0.4),
+                    color: kBlueAccent.withValues(alpha: 0.4),
                     blurRadius: 12,
                     offset: const Offset(0, 4),
                   ),
@@ -478,7 +478,7 @@ class _BottomItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = active ? Colors.white : Colors.white.withOpacity(0.5);
+    final color = active ? Colors.white : Colors.white.withValues(alpha: 0.5);
     return GestureDetector(
       onTap: onTap,
       behavior: HitTestBehavior.opaque,

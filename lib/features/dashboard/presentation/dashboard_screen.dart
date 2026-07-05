@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
 import 'package:formtract/core/theme/app_theme.dart';
+import 'package:intl/intl.dart';
 
 // Mock data — replaced with Firestore queries in Phase 3
 const _mockTransactions = [
@@ -138,10 +138,10 @@ class _StatsGrid extends StatelessWidget {
                 child: Padding(
                   padding: const EdgeInsets.only(right: 16),
                   child: _StatCard(
-                    label: s['label'] as String,
-                    value: s['value'] as String,
-                    icon: s['icon'] as IconData,
-                    color: s['color'] as Color,
+                    label: s['label']! as String,
+                    value: s['value']! as String,
+                    icon: s['icon']! as IconData,
+                    color: s['color']! as Color,
                   ),
                 ),
               ),
@@ -149,10 +149,10 @@ class _StatsGrid extends StatelessWidget {
             .toList()
           ..last = Expanded(
             child: _StatCard(
-              label: _stats.last['label'] as String,
-              value: _stats.last['value'] as String,
-              icon: _stats.last['icon'] as IconData,
-              color: _stats.last['color'] as Color,
+              label: _stats.last['label']! as String,
+              value: _stats.last['value']! as String,
+              icon: _stats.last['icon']! as IconData,
+              color: _stats.last['color']! as Color,
             ),
           ),
       );
@@ -167,10 +167,10 @@ class _StatsGrid extends StatelessWidget {
       children: _stats
           .map(
             (s) => _StatCard(
-              label: s['label'] as String,
-              value: s['value'] as String,
-              icon: s['icon'] as IconData,
-              color: s['color'] as Color,
+              label: s['label']! as String,
+              value: s['value']! as String,
+              icon: s['icon']! as IconData,
+              color: s['color']! as Color,
             ),
           )
           .toList(),
@@ -206,7 +206,7 @@ class _StatCard extends StatelessWidget {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: color.withOpacity(0.1),
+              color: color.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(icon, color: color, size: 22),
@@ -294,10 +294,10 @@ class _RecentTransactionsTable extends StatelessWidget {
 class _TableHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+    return const Padding(
+      padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
-        children: const [
+        children: [
           Expanded(flex: 3, child: _HeaderCell('Buyer / Party')),
           Expanded(flex: 4, child: _HeaderCell('Property Address')),
           Expanded(flex: 3, child: _HeaderCell('Form')),
@@ -470,15 +470,15 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final (bg, fg) = switch (status) {
       'Signed' => (
-          kSuccessGreen.withOpacity(0.12),
+          kSuccessGreen.withValues(alpha: 0.12),
           kSuccessGreen,
         ),
       'Awaiting' => (
-          kWarningAmber.withOpacity(0.12),
+          kWarningAmber.withValues(alpha: 0.12),
           kWarningAmber,
         ),
       _ => (
-          kBlueAccent.withOpacity(0.12),
+          kBlueAccent.withValues(alpha: 0.12),
           kBlueAccent,
         ),
     };
