@@ -50,3 +50,24 @@ app.*.map.json
 google-services.json
 GoogleService-Info.plist
 lib/firebase_options.dart
+
+# Android signing — never commit keystores or key.properties
+android/key.properties
+android/keystore/*.jks
+android/keystore/*.p12
+android/keystore/*.keystore
+
+# iOS signing — never commit certs or provisioning profiles
+*.p12
+*.mobileprovision
+ios/Certificates/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/
+fastlane/test_output/
+
+# Ruby
+.bundle/
+vendor/

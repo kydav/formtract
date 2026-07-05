@@ -1,0 +1,15 @@
+# Copy this file to android/key.properties and fill in your values.
+# NEVER commit key.properties — it is in .gitignore.
+#
+# Generate a keystore with:
+#   keytool -genkey -v -keystore formtract-upload.jks \
+#     -alias formtract-upload -keyalg RSA -keysize 2048 -validity 10000
+#
+# Then encode for GitHub secret:
+#   base64 -i android/keystore/formtract-upload.jks | pbcopy
+#   → paste as ANDROID_KEYSTORE_BASE64 in repo Settings → Secrets
+
+storePassword=<your-store-password>
+keyPassword=<your-key-password>
+keyAlias=formtract-upload
+storeFile=../keystore/formtract-upload.jks

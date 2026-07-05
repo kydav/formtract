@@ -1,0 +1,41 @@
+name: Deploy Web
+
+# Deploys Flutter web to Firebase Hosting on every push to main.
+#
+# Required GitHub secret:
+#   FIREBASE_SERVICE_ACCOUNT — JSON key for a GCP service account with the
+#     "Firebase Hosting Admin" role.
+#     Get it: Firebase Console → Project Settings → Service accounts →
+#             Generate new private key (or run `firebase init hosting` and
+#             select "Set up GitHub Actions" to auto-create the secret).
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-web:
+    name: Build & Deploy Web
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build web
+        run: flutter build web --release --dart-define=FLUTTER_WEB_USE_SKIA=true
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          channelId: live
+          projectId: formtract

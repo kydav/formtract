@@ -1,0 +1,65 @@
+name: Deploy Android
+
+# Builds a signed release AAB and uploads to the Play Store internal track
+# on every push to main.
+#
+# Required GitHub secrets:
+#   ANDROID_KEYSTORE_BASE64       — base64-encoded .jks upload keystore
+#                                   Generate: base64 -i formtract-upload.jks | pbcopy
+#   ANDROID_KEY_ALIAS             — key alias inside the keystore
+#   ANDROID_KEY_PASSWORD          — key password
+#   ANDROID_STORE_PASSWORD        — keystore password
+#   GOOGLE_PLAY_SERVICE_ACCOUNT_JSON — full JSON of the Play Console service account
+#                                   Play Console → Setup → API access → Create service account
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-android:
+    name: Build & Deploy Android
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Decode keystore
+        run: |
+          mkdir -p android/keystore
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode \
+            > android/keystore/formtract-upload.jks
+
+      - name: Write key.properties
+        run: |
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.ANDROID_STORE_PASSWORD }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          storeFile=../keystore/formtract-upload.jks
+          EOF
+
+      - name: Build release AAB
+        run: flutter build appbundle --release
+
+      - name: Upload to Play Store (internal track)
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: app.auaha.formtract
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: internal
+          status: completed

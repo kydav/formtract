@@ -1,0 +1,94 @@
+require "base64"
+require "fileutils"
+require "securerandom"
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Build and upload to TestFlight"
+  lane :beta do
+    keychain_name     = "formtract-build.keychain"
+    keychain_password = ENV["KEYCHAIN_PASSWORD"] || SecureRandom.hex(16)
+
+    # ── Keychain ─────────────────────────────────────────────────────────────
+    create_keychain(
+      name: keychain_name,
+      password: keychain_password,
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      lock_when_sleeps: false,
+    )
+
+    # ── Distribution certificate ──────────────────────────────────────────────
+    cert_path = "/tmp/formtract_dist.p12"
+    File.binwrite(cert_path, Base64.decode64(ENV.fetch("IOS_DISTRIBUTION_CERT_BASE64")))
+    import_certificate(
+      certificate_path: cert_path,
+      certificate_password: ENV.fetch("IOS_DISTRIBUTION_CERT_PASSWORD"),
+      keychain_name: keychain_name,
+      keychain_password: keychain_password,
+    )
+
+    # ── Provisioning profile ──────────────────────────────────────────────────
+    profile_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
+    FileUtils.mkdir_p(profile_dir)
+    profile_bytes = Base64.decode64(ENV.fetch("IOS_PROVISIONING_PROFILE_BASE64"))
+    profile_path  = "#{profile_dir}/formtract_appstore.mobileprovision"
+    File.binwrite(profile_path, profile_bytes)
+
+    # Read UUID from profile XML so Xcode can find it.
+    require "tempfile"
+    decoded = `security cms -D -i "#{profile_path}" 2>/dev/null`
+    profile_uuid = decoded.match(%r{<key>UUID</key>\s*<string>([^<]+)</string>})&.captures&.first
+    UI.user_error!("Could not parse provisioning profile UUID") unless profile_uuid
+
+    # ── Code signing ──────────────────────────────────────────────────────────
+    update_code_signing_settings(
+      use_automatic_signing: false,
+      path: "ios/Runner.xcodeproj",
+      team_id: ENV.fetch("APPLE_TEAM_ID"),
+      bundle_identifier: "app.auaha.formtract",
+      code_sign_identity: "iPhone Distribution",
+      profile_uuid: profile_uuid,
+    )
+
+    # ── Flutter build ─────────────────────────────────────────────────────────
+    sh("flutter build ios --release --no-codesign")
+
+    # ── Xcode archive & export ────────────────────────────────────────────────
+    build_app(
+      workspace: "ios/Runner.xcworkspace",
+      scheme: "Runner",
+      configuration: "Release",
+      export_method: "app-store",
+      export_options: {
+        teamID: ENV.fetch("APPLE_TEAM_ID"),
+        method: "app-store",
+        provisioningProfiles: {
+          "app.auaha.formtract" => profile_uuid,
+        },
+        signingStyle: "manual",
+      },
+      output_directory: "./build/ios/ipa",
+      output_name: "formtract.ipa",
+    )
+
+    # ── TestFlight upload ─────────────────────────────────────────────────────
+    api_key = app_store_connect_api_key(
+      key_id: ENV.fetch("APP_STORE_CONNECT_API_KEY_KEY_ID"),
+      issuer_id: ENV.fetch("APP_STORE_CONNECT_API_KEY_ISSUER_ID"),
+      key_content: ENV.fetch("APP_STORE_CONNECT_API_KEY_KEY_CONTENT"),
+      is_key_content_base64: true,
+    )
+    upload_to_testflight(
+      api_key: api_key,
+      skip_waiting_for_build_processing: true,
+    )
+
+  ensure
+    # Clean up keychain even if the lane fails.
+    delete_keychain(name: keychain_name) rescue nil
+    File.delete(cert_path) rescue nil
+  end
+end

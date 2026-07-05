@@ -1,0 +1,59 @@
+name: Deploy iOS
+
+# Builds a signed IPA and uploads to TestFlight on every push to main.
+# Uses Fastlane for code signing and upload.
+#
+# Prerequisites (one-time setup):
+#   1. Register app.auaha.formtract in Apple Developer portal (issue #7)
+#   2. Create an App Store Connect API key (Users & Access → Integrations → API Keys)
+#   3. Export your distribution certificate as a .p12 file
+#   4. Create an App Store distribution provisioning profile
+#
+# Required GitHub secrets:
+#   APP_STORE_CONNECT_API_KEY_KEY_ID      — Key ID from App Store Connect
+#   APP_STORE_CONNECT_API_KEY_ISSUER_ID   — Issuer ID from App Store Connect
+#   APP_STORE_CONNECT_API_KEY_KEY_CONTENT — base64-encoded .p8 API key
+#                                           base64 -i AuthKey_XXXX.p8 | pbcopy
+#   APPLE_TEAM_ID                         — 10-char team ID (e.g. ABC123DEF4)
+#   IOS_DISTRIBUTION_CERT_BASE64          — base64-encoded .p12 distribution cert
+#                                           base64 -i distribution.p12 | pbcopy
+#   IOS_DISTRIBUTION_CERT_PASSWORD        — .p12 export password
+#   IOS_PROVISIONING_PROFILE_BASE64       — base64-encoded .mobileprovision
+#                                           base64 -i formtract.mobileprovision | pbcopy
+#   KEYCHAIN_PASSWORD                     — any random string (used for temp keychain)
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy-ios:
+    name: Build & Deploy iOS
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Run Fastlane beta lane
+        run: bundle exec fastlane ios beta
+        env:
+          APP_STORE_CONNECT_API_KEY_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_ID }}
+          APP_STORE_CONNECT_API_KEY_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          APP_STORE_CONNECT_API_KEY_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_KEY_CONTENT }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_DISTRIBUTION_CERT_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERT_BASE64 }}
+          IOS_DISTRIBUTION_CERT_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERT_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
