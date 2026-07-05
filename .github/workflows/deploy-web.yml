@@ -10,8 +10,7 @@ name: Deploy Web
 #             select "Set up GitHub Actions" to auto-create the secret).
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy-web:

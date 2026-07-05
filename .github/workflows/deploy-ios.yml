@@ -23,8 +23,7 @@ name: Deploy iOS
 #   KEYCHAIN_PASSWORD                     — any random string (used for temp keychain)
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy-ios:

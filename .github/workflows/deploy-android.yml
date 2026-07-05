@@ -13,8 +13,7 @@ name: Deploy Android
 #                                   Play Console → Setup → API access → Create service account
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy-android:
