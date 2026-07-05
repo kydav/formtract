@@ -7,7 +7,8 @@ class PdfStamper {
   /// Fills [fieldValues] (AcroForm field name → value) into [originalPdfBytes].
   ///
   /// Text fields receive string values; checkboxes receive `bool` or the
-  /// strings `'true'`/`'Yes'`. Signature fields are left blank for now.
+  /// strings `'true'`/`'Yes'`. Signature fields accept PNG bytes (Uint8List)
+  /// which are drawn at the field's bounds on the page.
   static Uint8List stamp(
     Uint8List originalPdfBytes,
     Map<String, dynamic> fieldValues,
@@ -43,8 +44,14 @@ class PdfStamper {
               break;
             }
           }
+        } else if (field is PdfSignatureField) {
+          if (value is Uint8List && value.isNotEmpty) {
+            final page = field.page;
+            if (page != null) {
+              page.graphics.drawImage(PdfBitmap(value), field.bounds);
+            }
+          }
         }
-        // PdfSignatureField — skipped (requires digital cert / future feature)
       } catch (_) {
         // Non-fatal — field may be read-only or already flattened
       }

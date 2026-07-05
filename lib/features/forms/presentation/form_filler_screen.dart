@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +13,7 @@ import 'package:formtract/core/services/pdf_stamper.dart';
 import 'package:formtract/core/services/storage_service.dart';
 import 'package:formtract/core/theme/app_theme.dart';
 import 'package:go_router/go_router.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Full-screen wizard for filling a form template on behalf of a transaction.
 ///
@@ -228,7 +230,10 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     if (form == null) return;
     setState(() => _isSaving = true);
     try {
-      await saveFilledFormDraft(form.transactionId, form.id, Map.from(_values));
+      // Uint8List (signature bytes) can't be stored in Firestore — skip them.
+      final serializable = Map<String, dynamic>.from(_values)
+        ..removeWhere((_, v) => v is List<int>);
+      await saveFilledFormDraft(form.transactionId, form.id, serializable);
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -500,7 +505,16 @@ class _FieldWidget extends StatelessWidget {
         value: value == true || value.toString() == 'true',
         onChanged: onChanged,
       ),
-      FormFieldType.signature => _SignaturePlaceholder(label: field.label),
+      FormFieldType.radio => _RadioField(
+        label: field.label,
+        options: field.options,
+        value: value?.toString(),
+        onChanged: onChanged,
+      ),
+      FormFieldType.signature => _SignaturePad(
+        label: field.label,
+        onChanged: onChanged,
+      ),
       FormFieldType.dropdown => _DropdownField(
         label: field.label,
         options: field.options,
@@ -608,45 +622,223 @@ class _DropdownField extends StatelessWidget {
   }
 }
 
-class _SignaturePlaceholder extends StatelessWidget {
+class _RadioField extends StatelessWidget {
   final String label;
-  const _SignaturePlaceholder({required this.label});
+  final List<String> options;
+  final String? value;
+  final ValueChanged<dynamic> onChanged;
+
+  const _RadioField({
+    required this.label,
+    required this.options,
+    required this.value,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (options.isEmpty) {
+      return TextFormField(
+        decoration: InputDecoration(labelText: label),
+        initialValue: value ?? '',
+        onChanged: onChanged,
+      );
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label, style: Theme.of(context).textTheme.labelSmall),
         const SizedBox(height: 4),
-        Container(
-          height: 72,
-          decoration: BoxDecoration(
-            border: Border.all(color: kBorderColor),
-            borderRadius: BorderRadius.circular(8),
-            color: kBgPage,
+        RadioGroup<String>(
+          groupValue: value,
+          onChanged: (v) => onChanged(v),
+          child: Column(
+            children: options
+                .map(
+                  (opt) => RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    title: Text(
+                      opt,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    value: opt,
+                  ),
+                )
+                .toList(),
           ),
-          child: Center(
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(
-                  Icons.draw_outlined,
-                  color: kTextSecondary,
-                  size: 18,
+        ),
+      ],
+    );
+  }
+}
+
+class _SignaturePad extends StatefulWidget {
+  final String label;
+  final ValueChanged<dynamic> onChanged;
+
+  const _SignaturePad({required this.label, required this.onChanged});
+
+  @override
+  State<_SignaturePad> createState() => _SignaturePadState();
+}
+
+class _SignaturePadState extends State<_SignaturePad> {
+  final List<List<Offset>> _strokes = [];
+  List<Offset>? _current;
+  final _padKey = GlobalKey();
+
+  void _onPanStart(DragStartDetails d) {
+    setState(() {
+      _current = [d.localPosition];
+      _strokes.add(_current!);
+    });
+  }
+
+  void _onPanUpdate(DragUpdateDetails d) {
+    setState(() => _current?.add(d.localPosition));
+  }
+
+  Future<void> _onPanEnd(DragEndDetails _) async {
+    _current = null;
+    final bytes = await _export();
+    widget.onChanged(bytes);
+  }
+
+  Future<List<int>?> _export() async {
+    if (_strokes.isEmpty) return null;
+    final box = _padKey.currentContext?.findRenderObject() as RenderBox?;
+    final size = box?.size ?? const Size(400, 120);
+
+    final recorder = ui.PictureRecorder();
+    final canvas = Canvas(
+      recorder,
+      Rect.fromLTWH(0, 0, size.width, size.height),
+    );
+    canvas.drawRect(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      Paint()..color = Colors.white,
+    );
+    final paint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    for (final stroke in _strokes) {
+      if (stroke.isEmpty) continue;
+      if (stroke.length == 1) {
+        canvas.drawCircle(stroke[0], 1.5, paint);
+        continue;
+      }
+      final path = Path()..moveTo(stroke[0].dx, stroke[0].dy);
+      for (int i = 1; i < stroke.length; i++) {
+        path.lineTo(stroke[i].dx, stroke[i].dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+    final picture = recorder.endRecording();
+    final image = await picture.toImage(
+      size.width.toInt(),
+      size.height.toInt(),
+    );
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData?.buffer.asUint8List();
+  }
+
+  void _clear() {
+    setState(() => _strokes.clear());
+    widget.onChanged(null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEmpty = _strokes.isEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(widget.label, style: Theme.of(context).textTheme.labelSmall),
+            if (!isEmpty) ...[
+              const Spacer(),
+              GestureDetector(
+                onTap: _clear,
+                child: Text(
+                  'Clear',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: kBlueAccent,
+                  ),
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  'Signature capture — coming soon',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+              ),
+            ],
+          ],
+        ),
+        const SizedBox(height: 4),
+        Container(
+          key: _padKey,
+          height: 120,
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: isEmpty ? kBorderColor : kBlueAccent,
+              width: isEmpty ? 1 : 1.5,
+            ),
+            borderRadius: BorderRadius.circular(8),
+            color: Colors.white,
+          ),
+          clipBehavior: Clip.hardEdge,
+          child: GestureDetector(
+            onPanStart: _onPanStart,
+            onPanUpdate: _onPanUpdate,
+            onPanEnd: _onPanEnd,
+            child: CustomPaint(
+              painter: _StrokePainter(_strokes),
+              child: isEmpty
+                  ? Center(
+                      child: Text(
+                        'Sign here',
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: kTextSecondary),
+                      ),
+                    )
+                  : const SizedBox.expand(),
             ),
           ),
         ),
       ],
     );
   }
+}
+
+class _StrokePainter extends CustomPainter {
+  final List<List<Offset>> strokes;
+  _StrokePainter(this.strokes);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.black
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round
+      ..style = PaintingStyle.stroke;
+    for (final stroke in strokes) {
+      if (stroke.isEmpty) continue;
+      if (stroke.length == 1) {
+        canvas.drawCircle(stroke[0], 1.5, paint);
+        continue;
+      }
+      final path = Path()..moveTo(stroke[0].dx, stroke[0].dy);
+      for (int i = 1; i < stroke.length; i++) {
+        path.lineTo(stroke[i].dx, stroke[i].dy);
+      }
+      canvas.drawPath(path, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_StrokePainter old) => true;
 }
 
 class _BottomBar extends StatelessWidget {
@@ -767,14 +959,15 @@ class _DoneScreen extends StatelessWidget {
               ),
               const SizedBox(height: 32),
               FilledButton.icon(
-                onPressed: () {
-                  // TODO(kyler): share/open PDF (Phase 3 — share_plus)
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Share coming in Phase 3.')),
-                  );
+                onPressed: () async {
+                  final uri = Uri.parse(pdfUrl);
+                  if (await canLaunchUrl(uri)) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
                 },
-                icon: const Icon(Icons.share, size: 18),
-                label: const Text('Share PDF'),
+                icon: const Icon(Icons.open_in_new, size: 18),
+                label: const Text('Open PDF'),
+                style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
               ),
               const SizedBox(height: 12),
               OutlinedButton(onPressed: onClose, child: const Text('Done')),

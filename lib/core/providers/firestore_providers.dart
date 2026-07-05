@@ -12,14 +12,32 @@ final _db = FirebaseFirestore.instance;
 // ─── Agent profile ────────────────────────────────────────────────────────────
 
 /// Current agent's Firestore profile document.
+/// Auto-creates the document on first access so the profile always exists.
 final agentProfileProvider = StreamProvider<Agent?>((ref) {
   final auth = ref.watch(authNotifierProvider);
   if (!auth.isLoggedIn) return Stream.value(null);
+
+  final uid = auth.currentUser!.uid;
+  final email = auth.userEmail;
+
   return _db
       .collection('agents')
-      .doc(auth.currentUser!.uid)
+      .doc(uid)
       .snapshots()
-      .map((s) => s.exists ? Agent.fromFirestore(s) : null);
+      .asyncMap((snap) async {
+        if (!snap.exists) {
+          await _db.collection('agents').doc(uid).set({
+            'boardId': uid,
+            'email': email,
+            'firstName': '',
+            'lastName': '',
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+          return null;
+        }
+        return Agent.fromFirestore(snap);
+      });
 });
 
 /// Creates an agent profile if one doesn't exist yet (called after first sign-up).
