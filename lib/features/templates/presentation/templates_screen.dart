@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formtract/core/models/form_template.dart';
 import 'package:formtract/core/providers/firestore_providers.dart';
@@ -23,7 +24,7 @@ class TemplatesScreen extends ConsumerWidget {
   }
 }
 
-// ── Scaffold wrapper shared by loading/error states ────────────────────────
+// ── Scaffold wrapper shared by loading/error states ───────────────────────────
 
 class _Shell extends StatelessWidget {
   final Widget child;
@@ -54,7 +55,7 @@ class _Shell extends StatelessWidget {
   }
 }
 
-// ── Main body (knows boardId) ──────────────────────────────────────────────
+// ── Main body ─────────────────────────────────────────────────────────────────
 
 class _TemplatesBody extends ConsumerStatefulWidget {
   final String boardId;
@@ -66,6 +67,15 @@ class _TemplatesBody extends ConsumerStatefulWidget {
 
 class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
   bool _seeding = false;
+  String _query = '';
+  String? _selectedCategory;
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _seedTemplates() async {
     setState(() => _seeding = true);
@@ -91,6 +101,25 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
     }
   }
 
+  List<FormTemplate> _filter(List<FormTemplate> templates) {
+    var result = templates;
+    if (_selectedCategory != null) {
+      result = result.where((t) => t.category == _selectedCategory).toList();
+    }
+    if (_query.isNotEmpty) {
+      final q = _query.toLowerCase();
+      result = result
+          .where(
+            (t) =>
+                t.name.toLowerCase().contains(q) ||
+                (t.category?.toLowerCase().contains(q) ?? false) ||
+                (t.description?.toLowerCase().contains(q) ?? false),
+          )
+          .toList();
+    }
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     final templatesAsync = ref.watch(formTemplatesProvider(widget.boardId));
@@ -99,37 +128,128 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
       backgroundColor: kBgPage,
       body: Column(
         children: [
+          // ── Header ──────────────────────────────────────────────────────
           Container(
             color: Colors.white,
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-            child: Row(
+            child: Column(
               children: [
-                Text(
-                  'Templates',
-                  style: Theme.of(context).textTheme.headlineSmall,
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 12),
+                  child: Row(
+                    children: [
+                      Text(
+                        'Templates',
+                        style: Theme.of(context).textTheme.headlineSmall,
+                      ),
+                      const Spacer(),
+                      OutlinedButton.icon(
+                        onPressed: _seeding ? null : _seedTemplates,
+                        icon: _seeding
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.science_outlined, size: 16),
+                        label: const Text('Seed Test Forms'),
+                      ),
+                    ],
+                  ),
                 ),
-                const Spacer(),
-                OutlinedButton.icon(
-                  onPressed: _seeding ? null : _seedTemplates,
-                  icon: _seeding
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.science_outlined, size: 16),
-                  label: const Text('Seed Test Forms'),
+                // Search bar
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Search templates…',
+                      prefixIcon:
+                          const Icon(Icons.search, size: 20, color: kTextSecondary),
+                      suffixIcon: _query.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                _searchCtrl.clear();
+                                setState(() => _query = '');
+                              },
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                      isDense: true,
+                    ),
+                    onChanged: (v) => setState(() => _query = v),
+                  ),
                 ),
               ],
             ),
           ),
+
+          // ── Body ────────────────────────────────────────────────────────
           Expanded(
             child: templatesAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
-              data: (templates) => templates.isEmpty
-                  ? _EmptyState(onSeed: _seedTemplates, seeding: _seeding)
-                  : _TemplateList(templates: templates),
+              data: (templates) {
+                if (templates.isEmpty) {
+                  return _EmptyState(
+                    onSeed: _seedTemplates,
+                    seeding: _seeding,
+                  );
+                }
+
+                // Build category list from full (unfiltered) templates.
+                final categories = templates
+                    .map((t) => t.category)
+                    .whereType<String>()
+                    .toSet()
+                    .toList()
+                  ..sort();
+
+                final filtered = _filter(templates);
+
+                return Column(
+                  children: [
+                    // Category filter chips
+                    if (categories.isNotEmpty)
+                      _CategoryBar(
+                        categories: categories,
+                        selected: _selectedCategory,
+                        onSelect: (cat) => setState(() {
+                          _selectedCategory =
+                              _selectedCategory == cat ? null : cat;
+                        }),
+                      ),
+
+                    // Results
+                    Expanded(
+                      child: filtered.isEmpty
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(32),
+                                child: Text(
+                                  'No templates match "$_query".',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(color: kTextSecondary),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: filtered.length,
+                              separatorBuilder: (_, _) =>
+                                  const SizedBox(height: 8),
+                              itemBuilder: (context, i) =>
+                                  _TemplateCard(template: filtered[i]),
+                            ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ],
@@ -138,7 +258,56 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
   }
 }
 
-// ── Empty state ────────────────────────────────────────────────────────────
+// ── Category filter bar ───────────────────────────────────────────────────────
+
+class _CategoryBar extends StatelessWidget {
+  final List<String> categories;
+  final String? selected;
+  final ValueChanged<String> onSelect;
+
+  const _CategoryBar({
+    required this.categories,
+    required this.selected,
+    required this.onSelect,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.white,
+      height: 44,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        children: categories.map((cat) {
+          final active = cat == selected;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilterChip(
+              label: Text(cat),
+              selected: active,
+              onSelected: (_) => onSelect(cat),
+              labelStyle: TextStyle(
+                fontSize: 12,
+                color: active ? Colors.white : kTextPrimary,
+                fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+              ),
+              backgroundColor: kBgPage,
+              selectedColor: kBlueAccent,
+              checkmarkColor: Colors.white,
+              side: BorderSide(
+                color: active ? kBlueAccent : kBorderColor,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ── Empty state ───────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
   final VoidCallback onSeed;
@@ -175,9 +344,10 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Seed the four test forms to get started, or upload your own PDFs.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: kTextSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -202,22 +372,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// ── Template list ──────────────────────────────────────────────────────────
-
-class _TemplateList extends StatelessWidget {
-  final List<FormTemplate> templates;
-  const _TemplateList({required this.templates});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView.separated(
-      padding: const EdgeInsets.all(16),
-      itemCount: templates.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, i) => _TemplateCard(template: templates[i]),
-    );
-  }
-}
+// ── Template card ─────────────────────────────────────────────────────────────
 
 class _TemplateCard extends StatelessWidget {
   final FormTemplate template;
@@ -313,4 +468,16 @@ class _Chip extends StatelessWidget {
       ),
     );
   }
+}
+
+// Exported for use in other files that need to copy text to clipboard.
+Future<void> copyToClipboard(BuildContext context, String text) async {
+  await Clipboard.setData(ClipboardData(text: text));
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+    const SnackBar(
+      content: Text('Link copied to clipboard.'),
+      duration: Duration(seconds: 2),
+    ),
+  );
 }

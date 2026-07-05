@@ -3,6 +3,7 @@ import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formtract/core/models/filled_form.dart';
 import 'package:formtract/core/models/form_template.dart';
@@ -973,6 +974,39 @@ class _DoneScreen extends StatelessWidget {
     required this.onClose,
   });
 
+  Future<void> _openPdf() async {
+    final uri = Uri.parse(pdfUrl);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
+  }
+
+  Future<void> _copyLink(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: pdfUrl));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Link copied to clipboard.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _emailPdf(BuildContext context) async {
+    final subject = Uri.encodeComponent('$templateName — Formtract');
+    final body = Uri.encodeComponent(
+      'Please find the completed form at the link below:\n\n$pdfUrl',
+    );
+    final uri = Uri.parse('mailto:?subject=$subject&body=$body');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    } else if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No email app available.')),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1009,25 +1043,60 @@ class _DoneScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 templateName,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: kTextSecondary),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
-              FilledButton.icon(
-                onPressed: () async {
-                  final uri = Uri.parse(pdfUrl);
-                  if (await canLaunchUrl(uri)) {
-                    await launchUrl(uri, mode: LaunchMode.externalApplication);
-                  }
-                },
-                icon: const Icon(Icons.open_in_new, size: 18),
-                label: const Text('Open PDF'),
-                style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
+              SizedBox(
+                width: 240,
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton.icon(
+                        onPressed: _openPdf,
+                        icon: const Icon(Icons.open_in_new, size: 18),
+                        label: const Text('Open PDF'),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _emailPdf(context),
+                        icon: const Icon(Icons.email_outlined, size: 18),
+                        label: const Text('Email PDF'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _copyLink(context),
+                        icon: const Icon(Icons.link, size: 18),
+                        label: const Text('Copy Link'),
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: onClose,
+                      child: const Text('Done'),
+                    ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 12),
-              OutlinedButton(onPressed: onClose, child: const Text('Done')),
             ],
           ),
         ),

@@ -380,7 +380,6 @@ class _MobileShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kBgPage,
-      extendBody: true,
       body: child,
       bottomNavigationBar: SafeArea(
         child: Padding(
