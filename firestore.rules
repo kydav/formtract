@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function agentDoc() {
+      return get(/databases/$(database)/documents/agents/$(request.auth.uid));
+    }
+
+    function isAgentInBoard(boardId) {
+      return isAuthenticated() &&
+        agentDoc().data.boardId == boardId;
+    }
+
+    function isBoardAdmin(boardId) {
+      return isAuthenticated() &&
+        agentDoc().data.boardId == boardId &&
+        agentDoc().data.role == 'admin';
+    }
+
+    function isOwner(agentId) {
+      return isAuthenticated() && request.auth.uid == agentId;
+    }
+
+    // ── Boards ───────────────────────────────────────────────────────────────
+    // Agents can read their own board; only admins can modify board settings.
+
+    match /boards/{boardId} {
+      allow read:  if isAgentInBoard(boardId);
+      allow write: if isBoardAdmin(boardId);
+    }
+
+    // ── Agents ───────────────────────────────────────────────────────────────
+    // Any authenticated user can create their own profile (first sign-up).
+    // Agents can read profiles within the same board (for display).
+    // Only the agent themselves can update their own profile.
+
+    match /agents/{userId} {
+      allow read:   if isAuthenticated() &&
+                       (request.auth.uid == userId ||
+                        isAgentInBoard(resource.data.boardId));
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if isBoardAdmin(resource.data.boardId);
+    }
+
+    // ── Contacts ─────────────────────────────────────────────────────────────
+    // Contacts are private to the agent who created them.
+
+    match /contacts/{contactId} {
+      allow read, update, delete: if isOwner(resource.data.agentId);
+      allow create:               if isOwner(request.resource.data.agentId);
+    }
+
+    // ── Transactions ─────────────────────────────────────────────────────────
+    // Transactions are private to the agent who created them.
+
+    match /transactions/{txId} {
+      allow read, update, delete: if isOwner(resource.data.agentId);
+      allow create:               if isOwner(request.resource.data.agentId);
+
+      // filled_forms subcollection — access mirrors the parent transaction
+      match /filled_forms/{formId} {
+        allow read, write: if isOwner(
+          get(/databases/$(database)/documents/transactions/$(txId)).data.agentId
+        );
+      }
+    }
+
+    // ── Form templates ────────────────────────────────────────────────────────
+    // Templates are board-level. All agents in a board can read.
+    // Only board admins can create, update, or delete templates.
+
+    match /form_templates/{templateId} {
+      allow read:             if isAgentInBoard(resource.data.boardId);
+      allow create:           if isBoardAdmin(request.resource.data.boardId);
+      allow update, delete:   if isBoardAdmin(resource.data.boardId);
+    }
+  }
+}

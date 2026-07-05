@@ -1,0 +1,106 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:formtract/core/models/agent.dart';
+import 'package:formtract/core/models/contact.dart';
+import 'package:formtract/core/models/form_template.dart';
+import 'package:formtract/core/models/transaction.dart' as tx_model;
+import 'package:formtract/core/providers/auth_provider.dart';
+
+final _db = FirebaseFirestore.instance;
+
+// ─── Agent profile ────────────────────────────────────────────────────────────
+
+/// Current agent's Firestore profile document.
+final agentProfileProvider = StreamProvider<Agent?>((ref) {
+  final auth = ref.watch(authNotifierProvider);
+  if (!auth.isLoggedIn) return Stream.value(null);
+  return _db
+      .collection('agents')
+      .doc(auth.currentUser!.uid)
+      .snapshots()
+      .map((s) => s.exists ? Agent.fromFirestore(s) : null);
+});
+
+/// Creates an agent profile if one doesn't exist yet (called after first sign-up).
+Future<void> ensureAgentProfile({
+  required String uid,
+  required String email,
+  required String boardId,
+}) async {
+  final ref = _db.collection('agents').doc(uid);
+  final snap = await ref.get();
+  if (!snap.exists) {
+    final now = DateTime.now();
+    await ref.set(Agent(
+      id: uid,
+      boardId: boardId,
+      email: email,
+      firstName: '',
+      lastName: '',
+      createdAt: now,
+    ).toFirestore());
+  }
+}
+
+// ─── Transactions ─────────────────────────────────────────────────────────────
+
+/// All transactions for the current agent, ordered newest first.
+final transactionsProvider = StreamProvider<List<tx_model.Transaction>>((ref) {
+  final auth = ref.watch(authNotifierProvider);
+  if (!auth.isLoggedIn) return Stream.value([]);
+  return _db
+      .collection('transactions')
+      .where('agentId', isEqualTo: auth.currentUser!.uid)
+      .orderBy('createdAt', descending: true)
+      .snapshots()
+      .map((s) => s.docs.map(tx_model.Transaction.fromFirestore).toList());
+});
+
+Future<String> createTransaction(tx_model.Transaction transaction) async {
+  final ref = await _db.collection('transactions').add(transaction.toFirestore());
+  return ref.id;
+}
+
+Future<void> updateTransactionStatus(
+    String txId, tx_model.TransactionStatus status) async {
+  await _db.collection('transactions').doc(txId).update({
+    'status': status.name,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+// ─── Contacts ─────────────────────────────────────────────────────────────────
+
+/// All contacts for the current agent, ordered by last name.
+final contactsProvider = StreamProvider<List<Contact>>((ref) {
+  final auth = ref.watch(authNotifierProvider);
+  if (!auth.isLoggedIn) return Stream.value([]);
+  return _db
+      .collection('contacts')
+      .where('agentId', isEqualTo: auth.currentUser!.uid)
+      .orderBy('lastName')
+      .snapshots()
+      .map((s) => s.docs.map(Contact.fromFirestore).toList());
+});
+
+Future<String> createContact(Contact contact) async {
+  final ref = await _db.collection('contacts').add(contact.toFirestore());
+  return ref.id;
+}
+
+Future<void> updateContact(Contact contact) async {
+  await _db.collection('contacts').doc(contact.id).update(contact.toFirestore());
+}
+
+// ─── Form templates ───────────────────────────────────────────────────────────
+
+/// All form templates for a given board.
+final formTemplatesProvider =
+    StreamProvider.family<List<FormTemplate>, String>((ref, boardId) {
+  return _db
+      .collection('form_templates')
+      .where('boardId', isEqualTo: boardId)
+      .orderBy('name')
+      .snapshots()
+      .map((s) => s.docs.map(FormTemplate.fromFirestore).toList());
+});
