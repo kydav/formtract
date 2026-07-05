@@ -2,11 +2,12 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
-    - "**.g.dart"
+    - "**/*.g.dart"
     - "generated_plugin_registrant.dart"
     - "**/cache/**"
     - "**/.dart_tool/**"
-    - "ios/build/**"
+    - "**/build/**"
+    - "build/**"
 
 linter:
   rules:

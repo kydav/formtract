@@ -246,10 +246,7 @@ class _Sidebar extends ConsumerWidget {
   }
 }
 
-// _SidebarNavItem uses GestureDetector + MouseRegion instead of Material+InkWell
-// because Material(color: transparent) doesn't participate in hit testing on
-// Flutter web, causing taps to silently fail.
-class _SidebarNavItem extends StatefulWidget {
+class _SidebarNavItem extends StatelessWidget {
   final _NavDef item;
   final bool active;
   final VoidCallback onTap;
@@ -261,57 +258,45 @@ class _SidebarNavItem extends StatefulWidget {
   });
 
   @override
-  State<_SidebarNavItem> createState() => _SidebarNavItemState();
-}
-
-class _SidebarNavItemState extends State<_SidebarNavItem> {
-  bool _hovered = false;
-
-  Color get _bg {
-    if (widget.active) return Colors.white.withValues(alpha: 0.10);
-    if (_hovered) return Colors.white.withValues(alpha: 0.06);
-    return Colors.transparent;
-  }
-
-  Color get _fg =>
-      widget.active ? Colors.white : Colors.white.withValues(alpha: 0.55);
-
-  @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        onEnter: (_) => setState(() => _hovered = true),
-        onExit: (_) => setState(() => _hovered = false),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          behavior: HitTestBehavior.opaque,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 120),
-            decoration: BoxDecoration(
-              color: _bg,
-              borderRadius: BorderRadius.circular(8),
-            ),
+      child: Material(
+        // Use kNavyDark (not transparent) so the Material always occupies a
+        // real hit-test area on Flutter web. Inactive items look identical to
+        // the sidebar background; active items get the white tint via InkWell.
+        color: active ? kNavyLight : kNavyDark,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(8),
+          hoverColor: Colors.white.withValues(alpha: 0.06),
+          splashColor: Colors.white.withValues(alpha: 0.12),
+          highlightColor: Colors.white.withValues(alpha: 0.06),
+          mouseCursor: SystemMouseCursors.click,
+          child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
                 Icon(
-                  widget.active ? widget.item.activeIcon : widget.item.icon,
-                  color: _fg,
+                  active ? item.activeIcon : item.icon,
+                  color: active
+                      ? Colors.white
+                      : Colors.white.withValues(alpha: 0.55),
                   size: 20,
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  widget.item.label,
+                  item.label,
                   style: TextStyle(
-                    color: _fg,
+                    color: active
+                        ? Colors.white
+                        : Colors.white.withValues(alpha: 0.55),
                     fontSize: 14,
-                    fontWeight:
-                        widget.active ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
-                if (widget.active) ...[
+                if (active) ...[
                   const Spacer(),
                   Container(
                     width: 6,
