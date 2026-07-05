@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
+import 'package:formtract/core/router/router.dart';
 import 'package:formtract/core/theme/app_theme.dart';
 import 'package:go_router/go_router.dart';
 
@@ -164,7 +165,7 @@ class _Sidebar extends ConsumerWidget {
                       (item) => _SidebarNavItem(
                         item: item,
                         active: location.startsWith(item.path),
-                        onTap: () => context.go(item.path),
+                        onTap: () => ref.read(routerProvider).go(item.path),
                       ),
                     )
                     .toList(),
@@ -181,7 +182,7 @@ class _Sidebar extends ConsumerWidget {
                 label: 'Settings',
               ),
               active: location.startsWith('/settings'),
-              onTap: () {},
+              onTap: () {}, // TODO(kyler): settings screen
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -245,7 +246,10 @@ class _Sidebar extends ConsumerWidget {
   }
 }
 
-class _SidebarNavItem extends StatelessWidget {
+// _SidebarNavItem uses GestureDetector + MouseRegion instead of Material+InkWell
+// because Material(color: transparent) doesn't participate in hit testing on
+// Flutter web, causing taps to silently fail.
+class _SidebarNavItem extends StatefulWidget {
   final _NavDef item;
   final bool active;
   final VoidCallback onTap;
@@ -257,39 +261,57 @@ class _SidebarNavItem extends StatelessWidget {
   });
 
   @override
+  State<_SidebarNavItem> createState() => _SidebarNavItemState();
+}
+
+class _SidebarNavItemState extends State<_SidebarNavItem> {
+  bool _hovered = false;
+
+  Color get _bg {
+    if (widget.active) return Colors.white.withValues(alpha: 0.10);
+    if (_hovered) return Colors.white.withValues(alpha: 0.06);
+    return Colors.transparent;
+  }
+
+  Color get _fg =>
+      widget.active ? Colors.white : Colors.white.withValues(alpha: 0.55);
+
+  @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-      child: Material(
-        color: active ? Colors.white.withValues(alpha: 0.1) : Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(8),
-          hoverColor: Colors.white.withValues(alpha: 0.06),
-          child: Padding(
+      child: MouseRegion(
+        cursor: SystemMouseCursors.click,
+        onEnter: (_) => setState(() => _hovered = true),
+        onExit: (_) => setState(() => _hovered = false),
+        child: GestureDetector(
+          onTap: widget.onTap,
+          behavior: HitTestBehavior.opaque,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            decoration: BoxDecoration(
+              color: _bg,
+              borderRadius: BorderRadius.circular(8),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             child: Row(
               children: [
                 Icon(
-                  active ? item.activeIcon : item.icon,
-                  color: active
-                      ? Colors.white
-                      : Colors.white.withValues(alpha: 0.55),
+                  widget.active ? widget.item.activeIcon : widget.item.icon,
+                  color: _fg,
                   size: 20,
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  item.label,
+                  widget.item.label,
                   style: TextStyle(
-                    color: active
-                        ? Colors.white
-                        : Colors.white.withValues(alpha: 0.55),
+                    color: _fg,
                     fontSize: 14,
-                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight:
+                        widget.active ? FontWeight.w600 : FontWeight.normal,
                   ),
                 ),
-                if (active) ...[
+                if (widget.active) ...[
                   const Spacer(),
                   Container(
                     width: 6,
