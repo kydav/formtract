@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formtract/core/models/agent.dart';
 import 'package:formtract/core/models/contact.dart';
+import 'package:formtract/core/models/filled_form.dart';
 import 'package:formtract/core/models/form_template.dart';
 import 'package:formtract/core/models/transaction.dart' as tx_model;
 import 'package:formtract/core/providers/auth_provider.dart';
@@ -104,3 +105,87 @@ final formTemplatesProvider =
       .snapshots()
       .map((s) => s.docs.map(FormTemplate.fromFirestore).toList());
 });
+
+/// A single template by id.
+final formTemplateByIdProvider =
+    StreamProvider.family<FormTemplate?, String>((ref, templateId) {
+  return _db
+      .collection('form_templates')
+      .doc(templateId)
+      .snapshots()
+      .map((s) => s.exists ? FormTemplate.fromFirestore(s) : null);
+});
+
+// ─── Filled forms ─────────────────────────────────────────────────────────────
+
+/// All filled forms for a transaction, newest first.
+final filledFormsProvider =
+    StreamProvider.family<List<FilledForm>, String>((ref, txId) {
+  return _db
+      .collection('transactions')
+      .doc(txId)
+      .collection('filled_forms')
+      .orderBy('updatedAt', descending: true)
+      .snapshots()
+      .map((s) => s.docs.map(FilledForm.fromFirestore).toList());
+});
+
+Future<String> createFilledForm({
+  required String txId,
+  required String templateId,
+  required String templateName,
+}) async {
+  final ref = _db
+      .collection('transactions')
+      .doc(txId)
+      .collection('filled_forms')
+      .doc();
+  final now = DateTime.now();
+  await ref.set(FilledForm(
+    id: ref.id,
+    transactionId: txId,
+    templateId: templateId,
+    templateName: templateName,
+    createdAt: now,
+    updatedAt: now,
+  ).toFirestore());
+  return ref.id;
+}
+
+Future<void> saveFilledFormDraft(
+  String txId,
+  String formId,
+  Map<String, dynamic> fieldValues,
+) async {
+  await _db
+      .collection('transactions')
+      .doc(txId)
+      .collection('filled_forms')
+      .doc(formId)
+      .update({
+    'fieldValues': fieldValues,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+Future<void> completeFilledForm(
+  String txId,
+  String formId,
+  String pdfStoragePath,
+) async {
+  await _db
+      .collection('transactions')
+      .doc(txId)
+      .collection('filled_forms')
+      .doc(formId)
+      .update({
+    'status': 'complete',
+    'pdfStoragePath': pdfStoragePath,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+Future<Contact?> fetchContact(String contactId) async {
+  final snap = await _db.collection('contacts').doc(contactId).get();
+  return snap.exists ? Contact.fromFirestore(snap) : null;
+}

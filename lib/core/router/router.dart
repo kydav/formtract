@@ -5,6 +5,7 @@ import 'package:formtract/core/providers/auth_provider.dart';
 import 'package:formtract/features/auth/presentation/login_screen.dart';
 import 'package:formtract/features/contacts/presentation/contacts_screen.dart';
 import 'package:formtract/features/dashboard/presentation/dashboard_screen.dart';
+import 'package:formtract/features/forms/presentation/form_filler_screen.dart';
 import 'package:formtract/features/templates/presentation/templates_screen.dart';
 import 'package:formtract/features/transactions/presentation/transactions_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -25,6 +26,15 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
+      ),
+      // Full-screen form filler — outside the shell so it has no nav chrome.
+      // Path: /fill/:txId/:templateId   (txId == 'new' for testing from templates)
+      GoRoute(
+        path: '/fill/:txId/:templateId',
+        builder: (context, state) => FormFillerScreen(
+          txId: state.pathParameters['txId']!,
+          templateId: state.pathParameters['templateId']!,
+        ),
       ),
       ShellRoute(
         builder: (context, state, child) => AppShell(
