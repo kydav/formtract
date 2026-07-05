@@ -21,14 +21,14 @@ class Contact {
     required this.boardId,
     required this.firstName,
     required this.lastName,
+    required this.createdAt,
+    required this.updatedAt,
     this.email,
     this.phone,
     this.address,
     this.city,
     this.state,
     this.zip,
-    required this.createdAt,
-    required this.updatedAt,
   });
 
   String get fullName => '$firstName $lastName'.trim();
@@ -39,12 +39,17 @@ class Contact {
   }
 
   String? get fullAddress {
-    final parts = [address, city, state, zip].where((p) => p?.isNotEmpty ?? false);
+    final parts = [
+      address,
+      city,
+      state,
+      zip,
+    ].where((p) => p?.isNotEmpty ?? false);
     return parts.isEmpty ? null : parts.join(', ');
   }
 
   factory Contact.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final d = doc.data()! as Map<String, dynamic>;
     return Contact(
       id: doc.id,
       agentId: d['agentId'] as String,

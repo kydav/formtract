@@ -18,20 +18,22 @@ class Agent {
     required this.email,
     required this.firstName,
     required this.lastName,
+    required this.createdAt,
     this.licenseNumber,
     this.role = AgentRole.agent,
-    required this.createdAt,
   });
 
   String get fullName => '$firstName $lastName'.trim();
   String get initials {
     final f = firstName.isNotEmpty ? firstName[0] : '';
     final l = lastName.isNotEmpty ? lastName[0] : '';
-    return '$f$l'.toUpperCase().isNotEmpty ? '$f$l'.toUpperCase() : email[0].toUpperCase();
+    return '$f$l'.toUpperCase().isNotEmpty
+        ? '$f$l'.toUpperCase()
+        : email[0].toUpperCase();
   }
 
   factory Agent.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final d = doc.data()! as Map<String, dynamic>;
     return Agent(
       id: doc.id,
       boardId: d['boardId'] as String,

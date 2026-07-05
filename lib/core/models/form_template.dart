@@ -1,6 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-enum FormFieldType { text, email, phone, date, checkbox, radio, dropdown, signature, initials, number }
+enum FormFieldType {
+  text,
+  email,
+  phone,
+  date,
+  checkbox,
+  radio,
+  dropdown,
+  signature,
+  initials,
+  number,
+}
 
 class FormFieldDef {
   final String id; // matches AcroForm field name in PDF
@@ -72,17 +83,17 @@ class FormTemplate {
     required this.id,
     required this.boardId,
     required this.name,
-    this.description,
-    this.category,
     required this.pdfStoragePath,
-    this.steps = const [],
-    this.schemaReady = false,
     required this.createdAt,
     required this.updatedAt,
+    this.description,
+    this.category,
+    this.steps = const [],
+    this.schemaReady = false,
   });
 
   factory FormTemplate.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final d = doc.data()! as Map<String, dynamic>;
     return FormTemplate(
       id: doc.id,
       boardId: d['boardId'] as String,

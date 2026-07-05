@@ -4,10 +4,10 @@ enum TransactionStatus { draft, inProgress, awaitingSignature, complete }
 
 extension TransactionStatusLabel on TransactionStatus {
   String get label => switch (this) {
-    TransactionStatus.draft             => 'Draft',
-    TransactionStatus.inProgress        => 'In Progress',
+    TransactionStatus.draft => 'Draft',
+    TransactionStatus.inProgress => 'In Progress',
     TransactionStatus.awaitingSignature => 'Awaiting Signature',
-    TransactionStatus.complete          => 'Complete',
+    TransactionStatus.complete => 'Complete',
   };
 }
 
@@ -29,25 +29,29 @@ class Transaction {
     required this.id,
     required this.agentId,
     required this.boardId,
+    required this.propertyAddress,
+    required this.createdAt,
+    required this.updatedAt,
     this.buyerContactId,
     this.sellerContactId,
-    required this.propertyAddress,
     this.propertyCity,
     this.propertyState,
     this.propertyZip,
     this.status = TransactionStatus.draft,
-    required this.createdAt,
-    required this.updatedAt,
   });
 
   String get fullAddress {
-    final parts = [propertyAddress, propertyCity, propertyState, propertyZip]
-        .where((p) => p?.isNotEmpty ?? false);
+    final parts = [
+      propertyAddress,
+      propertyCity,
+      propertyState,
+      propertyZip,
+    ].where((p) => p?.isNotEmpty ?? false);
     return parts.join(', ');
   }
 
   factory Transaction.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final d = doc.data()! as Map<String, dynamic>;
     return Transaction(
       id: doc.id,
       agentId: d['agentId'] as String,

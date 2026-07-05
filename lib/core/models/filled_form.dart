@@ -18,15 +18,15 @@ class FilledForm {
     required this.transactionId,
     required this.templateId,
     required this.templateName,
+    required this.createdAt,
+    required this.updatedAt,
     this.fieldValues = const {},
     this.status = FilledFormStatus.draft,
     this.pdfStoragePath,
-    required this.createdAt,
-    required this.updatedAt,
   });
 
   factory FilledForm.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final d = doc.data()! as Map<String, dynamic>;
     return FilledForm(
       id: doc.id,
       transactionId: d['transactionId'] as String,

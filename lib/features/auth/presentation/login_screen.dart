@@ -48,7 +48,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } on FirebaseAuthException catch (e) {
       if (mounted) setState(() => _error = _friendlyError(e.code));
     } catch (e) {
-      if (mounted) setState(() => _error = 'Something went wrong. Please try again.');
+      if (mounted) {
+        setState(() => _error = 'Something went wrong. Please try again.');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -73,15 +75,15 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   String _friendlyError(String code) => switch (code) {
-    'user-not-found'          => 'No account found with that email.',
-    'wrong-password'          => 'Incorrect password.',
-    'invalid-credential'      => 'Incorrect email or password.',
-    'email-already-in-use'    => 'An account already exists with that email.',
-    'invalid-email'           => 'Enter a valid email address.',
-    'weak-password'           => 'Password must be at least 6 characters.',
-    'too-many-requests'       => 'Too many attempts. Try again later.',
-    'network-request-failed'  => 'Network error. Check your connection.',
-    _                         => 'Something went wrong. Please try again.',
+    'user-not-found' => 'No account found with that email.',
+    'wrong-password' => 'Incorrect password.',
+    'invalid-credential' => 'Incorrect email or password.',
+    'email-already-in-use' => 'An account already exists with that email.',
+    'invalid-email' => 'Enter a valid email address.',
+    'weak-password' => 'Password must be at least 6 characters.',
+    'too-many-requests' => 'Too many attempts. Try again later.',
+    'network-request-failed' => 'Network error. Check your connection.',
+    _ => 'Something went wrong. Please try again.',
   };
 
   @override
@@ -108,7 +110,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       isSignUp: _isSignUp,
                       loading: _loading,
                       error: _error,
-                      onToggleObscure: () => setState(() => _obscure = !_obscure),
+                      onToggleObscure: () =>
+                          setState(() => _obscure = !_obscure),
                       onToggleMode: () => setState(() {
                         _isSignUp = !_isSignUp;
                         _error = null;
@@ -146,7 +149,7 @@ class _Logo extends StatelessWidget {
             child: Image.asset(
               'assets/icon/icon.png',
               fit: BoxFit.cover,
-              errorBuilder: (_, __, ___) => const Center(
+              errorBuilder: (_, _, _) => const Center(
                 child: Text(
                   'F',
                   style: TextStyle(
@@ -294,7 +297,10 @@ class _FormCard extends StatelessWidget {
               style: TextButton.styleFrom(
                 foregroundColor: Colors.white.withValues(alpha: 0.55),
               ),
-              child: const Text('Forgot password?', style: TextStyle(fontSize: 13)),
+              child: const Text(
+                'Forgot password?',
+                style: TextStyle(fontSize: 13),
+              ),
             ),
           ],
           const SizedBox(height: 4),

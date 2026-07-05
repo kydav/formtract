@@ -13,14 +13,15 @@ class Board {
     required this.id,
     required this.name,
     required this.state,
+    required this.createdAt,
+
     this.contactEmail,
     this.phone,
     this.website,
-    required this.createdAt,
   });
 
   factory Board.fromFirestore(DocumentSnapshot doc) {
-    final d = doc.data() as Map<String, dynamic>;
+    final d = doc.data()! as Map<String, dynamic>;
     return Board(
       id: doc.id,
       name: d['name'] as String,
