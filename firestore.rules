@@ -74,13 +74,13 @@ service cloud.firestore {
     }
 
     // ── Form templates ────────────────────────────────────────────────────────
-    // Templates are board-level. All agents in a board can read.
-    // Only board admins can create, update, or delete templates.
+    // Templates are board-level. All agents in a board can read and write.
+    // Tighten to isBoardAdmin once multi-agent boards are implemented.
 
     match /form_templates/{templateId} {
-      allow read:             if isAgentInBoard(resource.data.boardId);
-      allow create:           if isBoardAdmin(request.resource.data.boardId);
-      allow update, delete:   if isBoardAdmin(resource.data.boardId);
+      allow read:           if isAgentInBoard(resource.data.boardId);
+      allow create:         if isAgentInBoard(request.resource.data.boardId);
+      allow update, delete: if isAgentInBoard(resource.data.boardId);
     }
   }
 }

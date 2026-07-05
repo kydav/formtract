@@ -31,6 +31,7 @@ final agentProfileProvider = StreamProvider<Agent?>((ref) {
             'email': email,
             'firstName': '',
             'lastName': '',
+            'role': 'admin',
             'createdAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           });
