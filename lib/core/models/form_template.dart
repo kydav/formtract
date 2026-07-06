@@ -20,13 +20,59 @@ class FormFieldDef {
   final bool required;
   final List<String> options; // for radio / dropdown
 
+  // Position on the PDF page — null for manually-created / AcroForm templates.
+  final int? page;       // 1-indexed page number
+  final double? x;       // % of page width (0-100)
+  final double? y;       // % of page height (0-100)
+  final double? width;   // % of page width
+  final double? height;  // % of page height
+
+  // Maps this field to a known contact/property value for autofill.
+  // E.g. "buyer.fullName", "agent.email", "property.address"
+  final String? contactMapping;
+
+  bool get hasPosition => page != null && x != null && y != null;
+
   const FormFieldDef({
     required this.id,
     required this.label,
     required this.type,
     this.required = false,
     this.options = const [],
+    this.page,
+    this.x,
+    this.y,
+    this.width,
+    this.height,
+    this.contactMapping,
   });
+
+  FormFieldDef copyWith({
+    String? id,
+    String? label,
+    FormFieldType? type,
+    bool? required,
+    List<String>? options,
+    int? page,
+    double? x,
+    double? y,
+    double? width,
+    double? height,
+    String? contactMapping,
+    bool clearContactMapping = false,
+  }) => FormFieldDef(
+    id: id ?? this.id,
+    label: label ?? this.label,
+    type: type ?? this.type,
+    required: required ?? this.required,
+    options: options ?? this.options,
+    page: page ?? this.page,
+    x: x ?? this.x,
+    y: y ?? this.y,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    contactMapping: clearContactMapping ? null : (contactMapping ?? this.contactMapping),
+  );
 
   factory FormFieldDef.fromMap(Map<String, dynamic> m) => FormFieldDef(
     id: m['id'] as String,
@@ -37,6 +83,12 @@ class FormFieldDef {
     ),
     required: m['required'] as bool? ?? false,
     options: List<String>.from(m['options'] as List? ?? []),
+    page: (m['page'] as num?)?.toInt(),
+    x: (m['x'] as num?)?.toDouble(),
+    y: (m['y'] as num?)?.toDouble(),
+    width: (m['width'] as num?)?.toDouble(),
+    height: (m['height'] as num?)?.toDouble(),
+    contactMapping: m['contactMapping'] as String?,
   );
 
   Map<String, dynamic> toMap() => {
@@ -45,6 +97,12 @@ class FormFieldDef {
     'type': type.name,
     'required': required,
     if (options.isNotEmpty) 'options': options,
+    if (page != null) 'page': page,
+    if (x != null) 'x': x,
+    if (y != null) 'y': y,
+    if (width != null) 'width': width,
+    if (height != null) 'height': height,
+    if (contactMapping != null) 'contactMapping': contactMapping,
   };
 }
 

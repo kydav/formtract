@@ -1,6 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import * as sgMail from '@sendgrid/mail';
+import { VertexAI } from '@google-cloud/vertexai';
 
 admin.initializeApp();
 
@@ -98,3 +99,118 @@ export const sendSigningEmail = functions.https.onCall(
     return { success: true };
   },
 );
+
+// ── AI form field detection ────────────────────────────────────────────────────
+
+interface DetectedField {
+  id: string;
+  label: string;
+  type: string;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  required: boolean;
+  options: string[];
+  contactMapping: string | null;
+}
+
+const FIELD_DETECTION_PROMPT = `You are analyzing a real estate form PDF to extract all fillable entry fields.
+
+For each field, return a JSON object with these exact properties:
+- "id": camelCase identifier derived from the label (e.g. "buyerFirstName", "purchasePrice", "agentSignature")
+- "label": the human-readable label exactly as printed on the form
+- "type": one of: "text", "email", "phone", "date", "number", "checkbox", "radio", "signature", "initials", "dropdown"
+- "page": page number (1-indexed)
+- "x": left edge as % of page width (0-100, measured from left)
+- "y": top edge as % of page height (0-100, measured from top)
+- "width": field width as % of page width (0-100)
+- "height": field height as % of page height (0-100)
+- "required": true if the field appears mandatory
+- "options": array of string choices for radio/dropdown fields, otherwise []
+- "contactMapping": one of the following if the field clearly maps to a known property, otherwise null:
+  "agent.name", "agent.email",
+  "buyer.fullName", "buyer.firstName", "buyer.lastName", "buyer.email", "buyer.phone", "buyer.address",
+  "property.address", "property.city", "property.state", "property.zipCode", "property.price"
+
+Return ONLY a valid JSON array. No explanation, no markdown fences, no extra text.`;
+
+export const detectFormFields = functions
+  .runWith({ timeoutSeconds: 120, memory: '512MB' })
+  .https.onCall(async (data: { templateId: string; boardId: string }, context) => {
+    if (!context.auth) {
+      throw new functions.https.HttpsError('unauthenticated', 'Must be signed in.');
+    }
+
+    const { templateId, boardId } = data as { templateId: string; boardId: string };
+    if (!templateId || !boardId) {
+      throw new functions.https.HttpsError('invalid-argument', 'templateId and boardId are required.');
+    }
+
+    // Download the PDF from Firebase Storage.
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(`templates/${boardId}/${templateId}.pdf`);
+    const [pdfBytes] = await file.download();
+    const base64Pdf = pdfBytes.toString('base64');
+
+    // Call Vertex AI Gemini 2.0 Flash.
+    const projectId = process.env['GCLOUD_PROJECT'] ?? process.env['GOOGLE_CLOUD_PROJECT'] ?? 'formtract';
+    const vertex = new VertexAI({ project: projectId, location: 'us-central1' });
+    const model = vertex.getGenerativeModel({ model: 'gemini-2.0-flash-001' });
+
+    const result = await model.generateContent({
+      contents: [{
+        role: 'user',
+        parts: [
+          { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
+          { text: FIELD_DETECTION_PROMPT },
+        ],
+      }],
+      generationConfig: { responseMimeType: 'application/json' },
+    });
+
+    const rawText = result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
+
+    let fields: DetectedField[];
+    try {
+      fields = JSON.parse(rawText) as DetectedField[];
+    } catch {
+      throw new functions.https.HttpsError('internal', `AI returned invalid JSON: ${rawText.slice(0, 200)}`);
+    }
+
+    // Group fields into steps by page, then save the full template schema.
+    const byPage = new Map<number, DetectedField[]>();
+    for (const f of fields) {
+      const page = f.page ?? 1;
+      if (!byPage.has(page)) byPage.set(page, []);
+      byPage.get(page)!.push(f);
+    }
+
+    const steps = Array.from(byPage.entries())
+      .sort(([a], [b]) => a - b)
+      .map(([page, pageFields]) => ({
+        title: `Page ${page}`,
+        fields: pageFields.map((f) => ({
+          id: f.id,
+          label: f.label,
+          type: f.type,
+          required: f.required ?? false,
+          options: f.options ?? [],
+          page: f.page,
+          x: f.x,
+          y: f.y,
+          width: f.width,
+          height: f.height,
+          contactMapping: f.contactMapping ?? null,
+        })),
+      }));
+
+    await admin.firestore().collection('form_templates').doc(templateId).update({
+      steps,
+      schemaReady: true,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    return { fields };
+  });

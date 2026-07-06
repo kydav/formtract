@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formtract/core/models/agent.dart';
 import 'package:formtract/core/models/contact.dart';
@@ -301,4 +302,34 @@ Future<void> completeSigningRequest(
 Future<Contact?> fetchContact(String contactId) async {
   final snap = await _db.collection('contacts').doc(contactId).get();
   return snap.exists ? Contact.fromFirestore(snap) : null;
+}
+
+// ─── Template field editing ───────────────────────────────────────────────────
+
+/// Saves the edited step/field structure back to Firestore and marks schema ready.
+Future<void> saveTemplateSteps(
+  String templateId,
+  List<FormStep> steps,
+) async {
+  await _db.collection('form_templates').doc(templateId).update({
+    'steps': steps.map((s) => s.toMap()).toList(),
+    'schemaReady': true,
+    'updatedAt': FieldValue.serverTimestamp(),
+  });
+}
+
+/// Calls the detectFormFields Cloud Function.
+/// Returns the raw field list returned by AI; Firestore is also updated by the function.
+Future<List<Map<String, dynamic>>> detectFormFieldsViaAI({
+  required String templateId,
+  required String boardId,
+}) async {
+  final fn = FirebaseFunctions.instance.httpsCallable(
+    'detectFormFields',
+    options: HttpsCallableOptions(timeout: const Duration(seconds: 120)),
+  );
+  final result = await fn.call({'templateId': templateId, 'boardId': boardId});
+  return List<Map<String, dynamic>>.from(
+    (result.data as Map<dynamic, dynamic>)['fields'] as List,
+  );
 }

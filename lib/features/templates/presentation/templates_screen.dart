@@ -433,6 +433,17 @@ class _TemplateCard extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => context.push('/templates/${template.id}/edit'),
+              icon: const Icon(Icons.tune, size: 14),
+              label: const Text('Edit Fields'),
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size(0, 36),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                textStyle: const TextStyle(fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 8),
             FilledButton(
               onPressed: () => context.push('/fill/new/${template.id}'),
               style: FilledButton.styleFrom(
