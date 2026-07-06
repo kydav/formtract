@@ -46,6 +46,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Environment files with secrets
+functions/.env
+functions/.env.*
+
 # Firebase config — never commit real keys
 google-services.json
 GoogleService-Info.plist
