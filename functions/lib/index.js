@@ -120,7 +120,7 @@ exports.detectFormFields = functions
     // Call Vertex AI Gemini 2.0 Flash.
     const projectId = (_b = (_a = process.env['GCLOUD_PROJECT']) !== null && _a !== void 0 ? _a : process.env['GOOGLE_CLOUD_PROJECT']) !== null && _b !== void 0 ? _b : 'formtract';
     const vertex = new vertexai_1.VertexAI({ project: projectId, location: 'us-central1' });
-    const model = vertex.getGenerativeModel({ model: 'gemini-2.0-flash-001' });
+    const model = vertex.getGenerativeModel({ model: 'gemini-1.5-flash' });
     const result = await model.generateContent({
         contents: [{
                 role: 'user',
