@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -409,7 +410,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       final url = 'https://formtract.web.app/sign/$token';
 
       if (!mounted) return;
-      _showSigningLinkSheet(url, template.name);
+      _showSigningLinkSheet(url, token, template.name);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -423,7 +424,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     }
   }
 
-  void _showSigningLinkSheet(String url, String templateName) {
+  void _showSigningLinkSheet(String url, String token, String templateName) {
     showModalBottomSheet(
       context: context,
       useRootNavigator: true,
@@ -431,7 +432,11 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => _SigningLinkSheet(url: url, templateName: templateName),
+      builder: (ctx) => _SigningLinkSheet(
+        url: url,
+        token: token,
+        templateName: templateName,
+      ),
     );
   }
 
@@ -1062,14 +1067,37 @@ class _BottomBar extends StatelessWidget {
 
 // ── Signing link bottom sheet ─────────────────────────────────────────────────
 
-class _SigningLinkSheet extends StatelessWidget {
+class _SigningLinkSheet extends StatefulWidget {
   final String url;
+  final String token;
   final String templateName;
-  const _SigningLinkSheet({required this.url, required this.templateName});
+  const _SigningLinkSheet({
+    required this.url,
+    required this.token,
+    required this.templateName,
+  });
 
-  Future<void> _copy(BuildContext context) async {
-    await Clipboard.setData(ClipboardData(text: url));
-    if (!context.mounted) return;
+  @override
+  State<_SigningLinkSheet> createState() => _SigningLinkSheetState();
+}
+
+class _SigningLinkSheetState extends State<_SigningLinkSheet> {
+  final _emailCtrl = TextEditingController();
+  final _nameCtrl = TextEditingController();
+  bool _sending = false;
+  bool _sent = false;
+  String? _sendError;
+
+  @override
+  void dispose() {
+    _emailCtrl.dispose();
+    _nameCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _copy() async {
+    await Clipboard.setData(ClipboardData(text: widget.url));
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Signing link copied.'),
@@ -1078,13 +1106,29 @@ class _SigningLinkSheet extends StatelessWidget {
     );
   }
 
-  Future<void> _send() async {
-    final subject = Uri.encodeComponent('Please sign: $templateName');
-    final body = Uri.encodeComponent(
-      'Please review and sign the document at the link below:\n\n$url\n\nThis link expires in 7 days.',
-    );
-    final uri = Uri.parse('mailto:?subject=$subject&body=$body');
-    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  Future<void> _sendViaFunction() async {
+    final email = _emailCtrl.text.trim();
+    if (email.isEmpty) return;
+
+    setState(() {
+      _sending = true;
+      _sendError = null;
+    });
+    try {
+      final fn = FirebaseFunctions.instance.httpsCallable('sendSigningEmail');
+      await fn.call({
+        'token': widget.token,
+        'clientEmail': email,
+        if (_nameCtrl.text.trim().isNotEmpty) 'clientName': _nameCtrl.text.trim(),
+      });
+      setState(() => _sent = true);
+    } on FirebaseFunctionsException catch (e) {
+      setState(() => _sendError = e.message ?? 'Failed to send email.');
+    } catch (e) {
+      setState(() => _sendError = e.toString());
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
   }
 
   @override
@@ -1118,10 +1162,7 @@ class _SigningLinkSheet extends StatelessWidget {
                   children: [
                     Text(
                       'Signing link created',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 16,
-                      ),
+                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
                     ),
                     Text(
                       'Expires in 7 days',
@@ -1137,45 +1178,106 @@ class _SigningLinkSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
+          // URL display + copy
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: kBgPage,
               borderRadius: BorderRadius.circular(8),
               border: Border.all(color: kBorderColor),
             ),
-            child: Text(
-              url,
-              style: const TextStyle(fontSize: 12, color: kTextSecondary),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    widget.url,
+                    style: const TextStyle(fontSize: 11, color: kTextSecondary),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: _copy,
+                  child: const Icon(Icons.copy, size: 16, color: kBlueAccent),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => _copy(context),
-                  icon: const Icon(Icons.copy, size: 16),
-                  label: const Text('Copy Link'),
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size(0, 44),
-                  ),
-                ),
+          const SizedBox(height: 20),
+          const Divider(height: 1),
+          const SizedBox(height: 16),
+          // Send via email section
+          Text(
+            'Send to client via email',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 10),
+          if (_sent)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: kSuccessGreen.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: _send,
-                  icon: const Icon(Icons.send_outlined, size: 16),
-                  label: const Text('Send Email'),
-                  style: FilledButton.styleFrom(
-                    minimumSize: const Size(0, 44),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle_outline,
+                      color: kSuccessGreen, size: 18),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Email sent to ${_emailCtrl.text.trim()}',
+                    style: const TextStyle(color: kSuccessGreen, fontSize: 13),
                   ),
-                ),
+                ],
+              ),
+            )
+          else ...[
+            TextField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Client name (optional)',
+                isDense: true,
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: _emailCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Client email',
+                isDense: true,
+              ),
+              keyboardType: TextInputType.emailAddress,
+              autocorrect: false,
+            ),
+            if (_sendError != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _sendError!,
+                style: const TextStyle(color: Colors.red, fontSize: 12),
               ),
             ],
-          ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _sending ? null : _sendViaFunction,
+                icon: _sending
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.send_outlined, size: 16),
+                label: const Text('Send Signing Email'),
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 44)),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
         ],
       ),
