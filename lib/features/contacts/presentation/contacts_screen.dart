@@ -51,12 +51,13 @@ class ContactsScreen extends ConsumerWidget {
   void _showAddContact(BuildContext context, WidgetRef ref) {
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _AddContactSheet(ref: ref),
+      builder: (_) => const AddContactSheet(),
     );
   }
 }
@@ -224,15 +225,14 @@ class _ContactCard extends ConsumerWidget {
 
 // ── Add contact sheet ──────────────────────────────────────────────────────────
 
-class _AddContactSheet extends ConsumerStatefulWidget {
-  final WidgetRef ref;
-  const _AddContactSheet({required this.ref});
+class AddContactSheet extends ConsumerStatefulWidget {
+  const AddContactSheet({super.key});
 
   @override
-  ConsumerState<_AddContactSheet> createState() => _AddContactSheetState();
+  ConsumerState<AddContactSheet> createState() => _AddContactSheetState();
 }
 
-class _AddContactSheetState extends ConsumerState<_AddContactSheet> {
+class _AddContactSheetState extends ConsumerState<AddContactSheet> {
   final _formKey = GlobalKey<FormState>();
   final _firstNameCtrl = TextEditingController();
   final _lastNameCtrl = TextEditingController();

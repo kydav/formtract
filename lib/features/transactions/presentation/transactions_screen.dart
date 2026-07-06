@@ -55,12 +55,13 @@ class TransactionsScreen extends ConsumerWidget {
   void _showNewTransaction(BuildContext context, WidgetRef ref) {
     showModalBottomSheet<void>(
       context: context,
+      useRootNavigator: true,
       isScrollControlled: true,
       backgroundColor: Colors.white,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (_) => _NewTransactionSheet(ref: ref),
+      builder: (_) => const NewTransactionSheet(),
     );
   }
 }
@@ -224,16 +225,15 @@ class _TransactionCard extends ConsumerWidget {
 
 // ── New transaction sheet ──────────────────────────────────────────────────────
 
-class _NewTransactionSheet extends ConsumerStatefulWidget {
-  final WidgetRef ref;
-  const _NewTransactionSheet({required this.ref});
+class NewTransactionSheet extends ConsumerStatefulWidget {
+  const NewTransactionSheet({super.key});
 
   @override
-  ConsumerState<_NewTransactionSheet> createState() =>
+  ConsumerState<NewTransactionSheet> createState() =>
       _NewTransactionSheetState();
 }
 
-class _NewTransactionSheetState extends ConsumerState<_NewTransactionSheet> {
+class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
   final _formKey = GlobalKey<FormState>();
   final _addressCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();

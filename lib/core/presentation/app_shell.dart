@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
 import 'package:formtract/core/router/router.dart';
 import 'package:formtract/core/theme/app_theme.dart';
+import 'package:formtract/features/contacts/presentation/contacts_screen.dart';
+import 'package:formtract/features/transactions/presentation/transactions_screen.dart';
 import 'package:go_router/go_router.dart';
 
 class AppShell extends ConsumerWidget {
@@ -389,6 +391,121 @@ class _MobileShell extends StatelessWidget {
       ),
     );
   }
+
+  static void showQuickCreate(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black12,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Create',
+                    style: Theme.of(ctx).textTheme.titleMedium,
+                  ),
+                ),
+              ),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: kBlueAccent.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.receipt_long_outlined,
+                      color: kBlueAccent, size: 20),
+                ),
+                title: const Text('New Transaction'),
+                subtitle: const Text('Start a deal with a property address'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showModalBottomSheet<void>(
+                    context: context,
+                    useRootNavigator: true,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.white,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(16)),
+                    ),
+                    builder: (_) => const NewTransactionSheet(),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: kSuccessGreen.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.person_add_outlined,
+                      color: kSuccessGreen, size: 20),
+                ),
+                title: const Text('Add Contact'),
+                subtitle: const Text('Save a buyer, seller, or client'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  showModalBottomSheet<void>(
+                    context: context,
+                    useRootNavigator: true,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.white,
+                    shape: const RoundedRectangleBorder(
+                      borderRadius:
+                          BorderRadius.vertical(top: Radius.circular(16)),
+                    ),
+                    builder: (_) => const AddContactSheet(),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: kWarningAmber.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.description_outlined,
+                      color: kWarningAmber, size: 20),
+                ),
+                title: const Text('Fill a Form'),
+                subtitle: const Text('Fill a standalone form without a transaction'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  context.go('/templates');
+                },
+              ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _FloatingBottomNav extends StatelessWidget {
@@ -429,7 +546,7 @@ class _FloatingBottomNav extends StatelessWidget {
             onTap: () => context.go('/transactions'),
           ),
           GestureDetector(
-            onTap: () {},
+            onTap: () => _MobileShell.showQuickCreate(context),
             child: Container(
               width: 44,
               height: 44,

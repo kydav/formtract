@@ -1,54 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:formtract/core/models/contact.dart';
+import 'package:formtract/core/models/transaction.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
+import 'package:formtract/core/providers/firestore_providers.dart';
 import 'package:formtract/core/theme/app_theme.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-
-// Mock data — replaced with Firestore queries in Phase 3
-const _mockTransactions = [
-  {
-    'buyer': 'Sarah Johnson',
-    'address': '1420 Oak Ridge Dr, Cedar City UT',
-    'status': 'Signed',
-    'date': 'Jul 3, 2026',
-    'form': 'BC-60 Buyer Agreement',
-  },
-  {
-    'buyer': 'Mark & Lisa Chen',
-    'address': '892 Canyon View Rd, St George UT',
-    'status': 'Awaiting',
-    'date': 'Jul 2, 2026',
-    'form': 'BC-60 Buyer Agreement',
-  },
-  {
-    'buyer': 'David Hernandez',
-    'address': '305 Pinecrest Blvd, Parowan UT',
-    'status': 'In Progress',
-    'date': 'Jul 1, 2026',
-    'form': 'Listing Agreement',
-  },
-  {
-    'buyer': 'Amy & Tom Walsh',
-    'address': '78 Juniper Ln, Enoch UT',
-    'status': 'Signed',
-    'date': 'Jun 29, 2026',
-    'form': 'BC-60 Buyer Agreement',
-  },
-  {
-    'buyer': 'Rachel Torres',
-    'address': '2210 Valley Ridge Ct, Cedar City UT',
-    'status': 'Awaiting',
-    'date': 'Jun 28, 2026',
-    'form': 'Purchase Agreement',
-  },
-];
-
-const _stats = [
-  {'label': 'Total Transactions', 'value': '12', 'icon': Icons.receipt_long, 'color': kBlueAccent},
-  {'label': 'Awaiting Signature', 'value': '5', 'icon': Icons.draw_outlined, 'color': kWarningAmber},
-  {'label': 'In Progress', 'value': '3', 'icon': Icons.pending_outlined, 'color': Color(0xFF7C3AED)},
-  {'label': 'Completed', 'value': '28', 'icon': Icons.check_circle_outline, 'color': kSuccessGreen},
-];
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -56,40 +14,73 @@ class DashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final auth = ref.watch(authNotifierProvider);
+    final txAsync = ref.watch(transactionsProvider);
+    final contactsAsync = ref.watch(contactsProvider);
     final isWide = MediaQuery.of(context).size.width >= 800;
 
     return Scaffold(
       backgroundColor: kBgPage,
-      body: SingleChildScrollView(
-        padding: EdgeInsets.fromLTRB(
-          isWide ? 28 : 20,
-          isWide ? 28 : 20,
-          isWide ? 28 : 20,
-          isWide ? 28 : 100,
+      body: txAsync.when(
+        loading: () => _buildBody(
+          context: context,
+          isWide: isWide,
+          userName: auth.userName,
+          transactions: null,
+          contacts: const [],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _GreetingHeader(userName: auth.userName),
-            const SizedBox(height: 24),
-            _StatsGrid(isWide: isWide),
-            const SizedBox(height: 24),
-            if (isWide)
-              _RecentTransactionsTable()
-            else
-              _RecentTransactionsList(),
-          ],
+        error: (e, _) => Center(child: Text('Error: $e')),
+        data: (txs) => _buildBody(
+          context: context,
+          isWide: isWide,
+          userName: auth.userName,
+          transactions: txs,
+          contacts: contactsAsync.value ?? [],
         ),
+      ),
+    );
+  }
+
+  Widget _buildBody({
+    required BuildContext context,
+    required bool isWide,
+    required String userName,
+    required List<Transaction>? transactions,
+    required List<Contact> contacts,
+  }) {
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(
+        isWide ? 28 : 20,
+        isWide ? 28 : 20,
+        isWide ? 28 : 20,
+        isWide ? 28 : 100,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _GreetingHeader(userName: userName),
+          const SizedBox(height: 24),
+          _StatsGrid(isWide: isWide, transactions: transactions),
+          const SizedBox(height: 24),
+          if (isWide)
+            _RecentTransactionsTable(
+              transactions: transactions?.take(5).toList() ?? [],
+              contacts: contacts,
+            )
+          else
+            _RecentTransactionsList(
+              transactions: transactions?.take(5).toList() ?? [],
+              contacts: contacts,
+            ),
+        ],
       ),
     );
   }
 }
 
-// ─── Greeting ─────────────────────────────────────────────────────────────────
+// ── Greeting ──────────────────────────────────────────────────────────────────
 
 class _GreetingHeader extends StatelessWidget {
   final String userName;
-
   const _GreetingHeader({required this.userName});
 
   String get _greeting {
@@ -121,42 +112,79 @@ class _GreetingHeader extends StatelessWidget {
   }
 }
 
-// ─── Stats grid ───────────────────────────────────────────────────────────────
+// ── Stats grid ────────────────────────────────────────────────────────────────
 
 class _StatsGrid extends StatelessWidget {
   final bool isWide;
+  final List<Transaction>? transactions;
 
-  const _StatsGrid({required this.isWide});
+  const _StatsGrid({required this.isWide, required this.transactions});
 
   @override
   Widget build(BuildContext context) {
+    final txs = transactions;
+    final total = txs?.length ?? 0;
+    final awaiting = txs
+            ?.where((t) => t.status == TransactionStatus.awaitingSignature)
+            .length ??
+        0;
+    final inProgress =
+        txs?.where((t) => t.status == TransactionStatus.inProgress).length ??
+            0;
+    final completed =
+        txs?.where((t) => t.status == TransactionStatus.complete).length ?? 0;
+
+    final stats = [
+      (
+        label: 'Total Transactions',
+        value: txs == null ? '—' : '$total',
+        icon: Icons.receipt_long,
+        color: kBlueAccent,
+      ),
+      (
+        label: 'Awaiting Signature',
+        value: txs == null ? '—' : '$awaiting',
+        icon: Icons.draw_outlined,
+        color: kWarningAmber,
+      ),
+      (
+        label: 'In Progress',
+        value: txs == null ? '—' : '$inProgress',
+        icon: Icons.pending_outlined,
+        color: const Color(0xFF7C3AED),
+      ),
+      (
+        label: 'Completed',
+        value: txs == null ? '—' : '$completed',
+        icon: Icons.check_circle_outline,
+        color: kSuccessGreen,
+      ),
+    ];
+
     if (isWide) {
       return Row(
-        children: _stats
+        children: stats
+            .asMap()
+            .entries
             .map(
-              (s) => Expanded(
+              (e) => Expanded(
                 child: Padding(
-                  padding: const EdgeInsets.only(right: 16),
+                  padding: EdgeInsets.only(
+                    right: e.key < stats.length - 1 ? 16 : 0,
+                  ),
                   child: _StatCard(
-                    label: s['label']! as String,
-                    value: s['value']! as String,
-                    icon: s['icon']! as IconData,
-                    color: s['color']! as Color,
+                    label: e.value.label,
+                    value: e.value.value,
+                    icon: e.value.icon,
+                    color: e.value.color,
                   ),
                 ),
               ),
             )
-            .toList()
-          ..last = Expanded(
-            child: _StatCard(
-              label: _stats.last['label']! as String,
-              value: _stats.last['value']! as String,
-              icon: _stats.last['icon']! as IconData,
-              color: _stats.last['color']! as Color,
-            ),
-          ),
+            .toList(),
       );
     }
+
     return GridView.count(
       crossAxisCount: 2,
       crossAxisSpacing: 12,
@@ -164,13 +192,13 @@ class _StatsGrid extends StatelessWidget {
       childAspectRatio: 1.6,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      children: _stats
+      children: stats
           .map(
             (s) => _StatCard(
-              label: s['label']! as String,
-              value: s['value']! as String,
-              icon: s['icon']! as IconData,
-              color: s['color']! as Color,
+              label: s.label,
+              value: s.value,
+              icon: s.icon,
+              color: s.color,
             ),
           )
           .toList(),
@@ -244,9 +272,37 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// ─── Recent transactions — desktop table ──────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+String _buyerName(Transaction tx, List<Contact> contacts) {
+  if (tx.buyerContactId == null || tx.buyerContactId!.isEmpty) return '—';
+  try {
+    return contacts
+        .firstWhere((c) => c.id == tx.buyerContactId)
+        .fullName;
+  } catch (_) {
+    return '—';
+  }
+}
+
+Color _statusColor(TransactionStatus s) => switch (s) {
+      TransactionStatus.draft => kTextSecondary,
+      TransactionStatus.inProgress => kBlueAccent,
+      TransactionStatus.awaitingSignature => kWarningAmber,
+      TransactionStatus.complete => kSuccessGreen,
+    };
+
+// ── Recent transactions — desktop table ───────────────────────────────────────
 
 class _RecentTransactionsTable extends StatelessWidget {
+  final List<Transaction> transactions;
+  final List<Contact> contacts;
+
+  const _RecentTransactionsTable({
+    required this.transactions,
+    required this.contacts,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -268,23 +324,37 @@ class _RecentTransactionsTable extends StatelessWidget {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {},
+                  onPressed: () => context.go('/transactions'),
                   child: const Text('View all'),
                 ),
               ],
             ),
           ),
           const Divider(height: 1),
-          _TableHeader(),
+          const _TableHeader(),
           const Divider(height: 1),
-          ..._mockTransactions.map(
-            (tx) => Column(
-              children: [
-                _TableRow(tx: tx),
-                const Divider(height: 1),
-              ],
+          if (transactions.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: Text(
+                  'No transactions yet.',
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(color: kTextSecondary),
+                ),
+              ),
+            )
+          else
+            ...transactions.map(
+              (tx) => Column(
+                children: [
+                  _TableRow(tx: tx, contacts: contacts),
+                  const Divider(height: 1),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -292,15 +362,16 @@ class _RecentTransactionsTable extends StatelessWidget {
 }
 
 class _TableHeader extends StatelessWidget {
+  const _TableHeader();
+
   @override
   Widget build(BuildContext context) {
     return const Padding(
       padding: EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Row(
         children: [
-          Expanded(flex: 3, child: _HeaderCell('Buyer / Party')),
+          Expanded(flex: 3, child: _HeaderCell('Buyer')),
           Expanded(flex: 4, child: _HeaderCell('Property Address')),
-          Expanded(flex: 3, child: _HeaderCell('Form')),
           Expanded(flex: 2, child: _HeaderCell('Status')),
           Expanded(flex: 2, child: _HeaderCell('Date')),
         ],
@@ -328,61 +399,87 @@ class _HeaderCell extends StatelessWidget {
 }
 
 class _TableRow extends StatelessWidget {
-  final Map<String, String> tx;
+  final Transaction tx;
+  final List<Contact> contacts;
 
-  const _TableRow({required this.tx});
+  const _TableRow({required this.tx, required this.contacts});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 3,
-            child: Text(
-              tx['buyer']!,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: kTextPrimary,
+    final color = _statusColor(tx.status);
+    final fmt = DateFormat('MMM d, yyyy');
+
+    return InkWell(
+      onTap: () => context.push('/transactions/${tx.id}'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        child: Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: Text(
+                _buyerName(tx, contacts),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: kTextPrimary,
+                ),
               ),
             ),
-          ),
-          Expanded(
-            flex: 4,
-            child: Text(
-              tx['address']!,
-              style: const TextStyle(fontSize: 13, color: kTextSecondary),
+            Expanded(
+              flex: 4,
+              child: Text(
+                tx.propertyAddress.isNotEmpty
+                    ? tx.fullAddress
+                    : 'No address',
+                style: const TextStyle(fontSize: 13, color: kTextSecondary),
+              ),
             ),
-          ),
-          Expanded(
-            flex: 3,
-            child: Text(
-              tx['form']!,
-              style: const TextStyle(fontSize: 13, color: kTextSecondary),
+            Expanded(
+              flex: 2,
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.10),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  tx.status.label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: _StatusBadge(tx['status']!),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              tx['date']!,
-              style: const TextStyle(fontSize: 13, color: kTextSecondary),
+            Expanded(
+              flex: 2,
+              child: Text(
+                fmt.format(tx.createdAt),
+                style:
+                    const TextStyle(fontSize: 13, color: kTextSecondary),
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 }
 
-// ─── Recent transactions — mobile list ────────────────────────────────────────
+// ── Recent transactions — mobile list ─────────────────────────────────────────
 
 class _RecentTransactionsList extends StatelessWidget {
+  final List<Transaction> transactions;
+  final List<Contact> contacts;
+
+  const _RecentTransactionsList({
+    required this.transactions,
+    required this.contacts,
+  });
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -395,108 +492,121 @@ class _RecentTransactionsList extends StatelessWidget {
               style: Theme.of(context).textTheme.titleMedium,
             ),
             const Spacer(),
-            TextButton(onPressed: () {}, child: const Text('View all')),
+            TextButton(
+              onPressed: () => context.go('/transactions'),
+              child: const Text('View all'),
+            ),
           ],
         ),
         const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: kBorderColor),
-          ),
-          child: ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _mockTransactions.length,
-            separatorBuilder: (context, index) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final tx = _mockTransactions[index];
-              return Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+        if (transactions.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kBorderColor),
+            ),
+            child: Center(
+              child: Text(
+                'No transactions yet.',
+                style: Theme.of(context)
+                    .textTheme
+                    .bodyMedium
+                    ?.copyWith(color: kTextSecondary),
+              ),
+            ),
+          )
+        else
+          Container(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kBorderColor),
+            ),
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: transactions.length,
+              separatorBuilder: (_, _) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final tx = transactions[i];
+                final color = _statusColor(tx.status);
+                final buyer = _buyerName(tx, contacts);
+                final fmt = DateFormat('MMM d');
+
+                return InkWell(
+                  onTap: () => context.push('/transactions/${tx.id}'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            tx['buyer']!,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                tx.propertyAddress.isNotEmpty
+                                    ? tx.propertyAddress
+                                    : 'No address',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 14,
+                                  color: kTextPrimary,
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: color.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                tx.status.label,
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: color,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        if (buyer != '—')
+                          Text(
+                            buyer,
                             style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                              fontSize: 14,
-                              color: kTextPrimary,
+                              fontSize: 12,
+                              color: kTextSecondary,
                             ),
                           ),
+                        Text(
+                          [
+                            if (tx.propertyCity != null) tx.propertyCity!,
+                            if (tx.propertyState != null) tx.propertyState!,
+                          ].join(', ').isNotEmpty
+                              ? [
+                                  if (tx.propertyCity != null) tx.propertyCity!,
+                                  if (tx.propertyState != null)
+                                    tx.propertyState!,
+                                ].join(', ')
+                              : fmt.format(tx.createdAt),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: kTextSecondary,
+                          ),
                         ),
-                        _StatusBadge(tx['status']!),
                       ],
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      tx['address']!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: kTextSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '${tx['form']} · ${tx['date']}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: kTextSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
+                  ),
+                );
+              },
+            ),
           ),
-        ),
       ],
-    );
-  }
-}
-
-// ─── Status badge ─────────────────────────────────────────────────────────────
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-
-  const _StatusBadge(this.status);
-
-  @override
-  Widget build(BuildContext context) {
-    final (bg, fg) = switch (status) {
-      'Signed' => (
-          kSuccessGreen.withValues(alpha: 0.12),
-          kSuccessGreen,
-        ),
-      'Awaiting' => (
-          kWarningAmber.withValues(alpha: 0.12),
-          kWarningAmber,
-        ),
-      _ => (
-          kBlueAccent.withValues(alpha: 0.12),
-          kBlueAccent,
-        ),
-    };
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: fg,
-        ),
-      ),
     );
   }
 }
