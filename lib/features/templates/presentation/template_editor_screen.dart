@@ -404,11 +404,16 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
           pageSize = _pageSizes[_viewingPage - 1];
         }
         // Height the PDF page occupies when scaled to fill viewerWidth.
-        final renderedPageHeight = viewerWidth / pageSize.width * pageSize.height;
+        final renderedPageHeight =
+            viewerWidth / pageSize.width * pageSize.height;
 
+        // Only overlay fields that have AI-detected positions.
+        // AcroForm-only fields have null x/y and must be navigated via the panel.
         final currentPageFields = _fields
-            .where((f) => (f.page ?? 1) == _viewingPage)
+            .where((f) => (f.page ?? 1) == _viewingPage && f.hasPosition)
             .toList();
+
+        final hasAnyPositions = _fields.any((f) => f.hasPosition);
 
         return Stack(
           children: [
@@ -437,10 +442,14 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
               return Positioned(
                 left: (field.x ?? 0) / 100 * viewerWidth,
                 top: (field.y ?? 0) / 100 * renderedPageHeight,
-                width: ((field.width ?? 10) / 100 * viewerWidth)
-                    .clamp(20.0, viewerWidth),
-                height: ((field.height ?? 4) / 100 * renderedPageHeight)
-                    .clamp(14.0, renderedPageHeight),
+                width: ((field.width ?? 10) / 100 * viewerWidth).clamp(
+                  20.0,
+                  viewerWidth,
+                ),
+                height: ((field.height ?? 4) / 100 * renderedPageHeight).clamp(
+                  14.0,
+                  renderedPageHeight,
+                ),
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => _selectField(fieldIndex),
@@ -450,9 +459,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
                         color: color,
                         width: isSelected ? 2 : 1,
                       ),
-                      color: color.withValues(
-                        alpha: isSelected ? 0.18 : 0.08,
-                      ),
+                      color: color.withValues(alpha: isSelected ? 0.18 : 0.08),
                     ),
                     child: Align(
                       alignment: Alignment.topLeft,
@@ -476,6 +483,41 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
                 ),
               );
             }),
+
+            // Banner when no fields have AI-detected positions yet.
+            if (!hasAnyPositions)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  color: kWarningAmber.withValues(alpha: 0.92),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.info_outline, size: 16, color: Colors.white),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'No field positions yet — tap "Detect Fields" in the toolbar to map fields to the PDF.',
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _detecting ? null : _detectFields,
+                        child: const Text(
+                          'Detect Now',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
           ],
         );
       },
