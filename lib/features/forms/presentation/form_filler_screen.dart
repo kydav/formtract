@@ -49,6 +49,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _isGenerating = false;
+  bool _isRequestingSigning = false;
   String? _error;
   String? _completedPdfUrl;
 
@@ -363,6 +364,77 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     }
   }
 
+  // ── Remote signing request ─────────────────────────────────────────────────
+
+  Future<void> _requestSigningFromWizard() async {
+    final template = _template;
+    final form = _filledForm;
+    if (template == null || form == null || widget.txId == 'new') return;
+
+    setState(() => _isRequestingSigning = true);
+    try {
+      _saveTimer?.cancel();
+      await _save();
+
+      final auth = ref.read(authNotifierProvider);
+      final agent = ref.read(agentProfileProvider).value;
+      final agentId = auth.currentUser!.uid;
+      final boardId = agent?.boardId ?? agentId;
+
+      final sigFieldIds = template.steps
+          .expand((s) => s.fields)
+          .where((f) => f.type == FormFieldType.signature)
+          .map((f) => f.id)
+          .toList();
+
+      final fieldValues = Map<String, dynamic>.from(_values)
+        ..removeWhere((_, v) => v is List<int>);
+
+      final now = DateTime.now();
+      final request = SigningRequest(
+        token: '',
+        agentId: agentId,
+        transactionId: widget.txId,
+        filledFormId: form.id,
+        templateId: template.id,
+        templateName: template.name,
+        boardId: boardId,
+        fieldValues: fieldValues,
+        signatureFieldIds: sigFieldIds,
+        createdAt: now,
+        expiresAt: now.add(const Duration(days: 7)),
+      );
+
+      final token = await createSigningRequest(request);
+      final url = 'https://formtract.web.app/sign/$token';
+
+      if (!mounted) return;
+      _showSigningLinkSheet(url, template.name);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to create signing request: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isRequestingSigning = false);
+    }
+  }
+
+  void _showSigningLinkSheet(String url, String templateName) {
+    showModalBottomSheet(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => _SigningLinkSheet(url: url, templateName: templateName),
+    );
+  }
+
   // ── Build ──────────────────────────────────────────────────────────────────
 
   @override
@@ -378,11 +450,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     }
     if (_completedPdfUrl != null) {
       return _DoneScreen(
-        template: _template!,
-        filledFormId: _filledForm!.id,
-        txId: widget.txId,
-        fieldValues: Map.from(_values)
-          ..removeWhere((_, v) => v is List<int>),
+        templateName: _template?.name ?? '',
         pdfUrl: _completedPdfUrl!,
         onClose: () => context.pop(),
       );
@@ -457,9 +525,13 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
             isFirst: _step == 0,
             isLast: isLastStep,
             isGenerating: _isGenerating,
+            isRequestingSigning: _isRequestingSigning,
             onBack: _back,
             onNext: _next,
             onGenerate: _generatePdf,
+            onRequestSigning: widget.txId != 'new'
+                ? _requestSigningFromWizard
+                : null,
           ),
         ],
       ),
@@ -908,21 +980,26 @@ class _BottomBar extends StatelessWidget {
   final bool isFirst;
   final bool isLast;
   final bool isGenerating;
+  final bool isRequestingSigning;
   final VoidCallback onBack;
   final VoidCallback onNext;
   final VoidCallback onGenerate;
+  final VoidCallback? onRequestSigning;
 
   const _BottomBar({
     required this.isFirst,
     required this.isLast,
     required this.isGenerating,
+    required this.isRequestingSigning,
     required this.onBack,
     required this.onNext,
     required this.onGenerate,
+    this.onRequestSigning,
   });
 
   @override
   Widget build(BuildContext context) {
+    final busy = isGenerating || isRequestingSigning;
     return Container(
       color: Colors.white,
       padding: EdgeInsets.fromLTRB(
@@ -936,13 +1013,28 @@ class _BottomBar extends StatelessWidget {
           if (!isFirst)
             OutlinedButton(
               onPressed: onBack,
-              style: OutlinedButton.styleFrom(minimumSize: const Size(100, 44)),
+              style: OutlinedButton.styleFrom(minimumSize: const Size(88, 44)),
               child: const Text('Back'),
             ),
           const Spacer(),
-          if (isLast)
+          if (isLast) ...[
+            if (onRequestSigning != null) ...[
+              OutlinedButton.icon(
+                onPressed: busy ? null : onRequestSigning,
+                icon: isRequestingSigning
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.draw_outlined, size: 16),
+                label: const Text('Request Signature'),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+              ),
+              const SizedBox(width: 8),
+            ],
             FilledButton.icon(
-              onPressed: isGenerating ? null : onGenerate,
+              onPressed: busy ? null : onGenerate,
               icon: isGenerating
                   ? const SizedBox(
                       width: 16,
@@ -954,9 +1046,9 @@ class _BottomBar extends StatelessWidget {
                     )
                   : const Icon(Icons.picture_as_pdf, size: 18),
               label: const Text('Generate PDF'),
-              style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
-            )
-          else
+              style: FilledButton.styleFrom(minimumSize: const Size(148, 44)),
+            ),
+          ] else
             FilledButton(
               onPressed: onNext,
               style: FilledButton.styleFrom(minimumSize: const Size(100, 44)),
@@ -968,42 +1060,150 @@ class _BottomBar extends StatelessWidget {
   }
 }
 
-class _DoneScreen extends ConsumerStatefulWidget {
-  final FormTemplate template;
-  final String filledFormId;
-  final String txId;
-  final Map<String, dynamic> fieldValues;
+// ── Signing link bottom sheet ─────────────────────────────────────────────────
+
+class _SigningLinkSheet extends StatelessWidget {
+  final String url;
+  final String templateName;
+  const _SigningLinkSheet({required this.url, required this.templateName});
+
+  Future<void> _copy(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Signing link copied.'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
+
+  Future<void> _send() async {
+    final subject = Uri.encodeComponent('Please sign: $templateName');
+    final body = Uri.encodeComponent(
+      'Please review and sign the document at the link below:\n\n$url\n\nThis link expires in 7 days.',
+    );
+    final uri = Uri.parse('mailto:?subject=$subject&body=$body');
+    if (await canLaunchUrl(uri)) await launchUrl(uri);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        20,
+        20,
+        20 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: kSuccessGreen.withValues(alpha: 0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check, color: kSuccessGreen, size: 18),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Signing link created',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
+                    ),
+                    Text(
+                      'Expires in 7 days',
+                      style: TextStyle(color: kTextSecondary, fontSize: 12),
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.pop(context),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: kBgPage,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: kBorderColor),
+            ),
+            child: Text(
+              url,
+              style: const TextStyle(fontSize: 12, color: kTextSecondary),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _copy(context),
+                  icon: const Icon(Icons.copy, size: 16),
+                  label: const Text('Copy Link'),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: _send,
+                  icon: const Icon(Icons.send_outlined, size: 16),
+                  label: const Text('Send Email'),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 44),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+  }
+}
+
+class _DoneScreen extends StatelessWidget {
+  final String templateName;
   final String pdfUrl;
   final VoidCallback onClose;
 
   const _DoneScreen({
-    required this.template,
-    required this.filledFormId,
-    required this.txId,
-    required this.fieldValues,
+    required this.templateName,
     required this.pdfUrl,
     required this.onClose,
   });
 
-  @override
-  ConsumerState<_DoneScreen> createState() => _DoneScreenState();
-}
-
-class _DoneScreenState extends ConsumerState<_DoneScreen> {
-  bool _creatingRequest = false;
-  String? _signingUrl;
-  String? _requestError;
-
   Future<void> _openPdf() async {
-    final uri = Uri.parse(widget.pdfUrl);
+    final uri = Uri.parse(pdfUrl);
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
-  Future<void> _copyLink(String url) async {
-    await Clipboard.setData(ClipboardData(text: url));
-    if (!mounted) return;
+  Future<void> _copyLink(BuildContext context) async {
+    await Clipboard.setData(ClipboardData(text: pdfUrl));
+    if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Link copied to clipboard.'),
@@ -1012,77 +1212,32 @@ class _DoneScreenState extends ConsumerState<_DoneScreen> {
     );
   }
 
-  Future<void> _emailPdf() async {
-    final subject = Uri.encodeComponent('${widget.template.name} — Formtract');
+  Future<void> _emailPdf(BuildContext context) async {
+    final subject = Uri.encodeComponent('$templateName — Formtract');
     final body = Uri.encodeComponent(
-      'Please find the completed form at the link below:\n\n${widget.pdfUrl}',
+      'Please find the completed form at the link below:\n\n$pdfUrl',
     );
     final uri = Uri.parse('mailto:?subject=$subject&body=$body');
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
-    } else if (mounted) {
+    } else if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No email app available.')),
       );
     }
   }
 
-  Future<void> _requestSignature() async {
-    setState(() {
-      _creatingRequest = true;
-      _requestError = null;
-    });
-    try {
-      final auth = ref.read(authNotifierProvider);
-      final agent = ref.read(agentProfileProvider).value;
-      final agentId = auth.currentUser!.uid;
-      final boardId = agent?.boardId ?? agentId;
-
-      // Collect the IDs of all signature fields in this template.
-      final sigFieldIds = widget.template.steps
-          .expand((s) => s.fields)
-          .where((f) => f.type == FormFieldType.signature)
-          .map((f) => f.id)
-          .toList();
-
-      final now = DateTime.now();
-      final request = SigningRequest(
-        token: '', // assigned by Firestore
-        agentId: agentId,
-        transactionId: widget.txId,
-        filledFormId: widget.filledFormId,
-        templateId: widget.template.id,
-        templateName: widget.template.name,
-        boardId: boardId,
-        fieldValues: widget.fieldValues,
-        signatureFieldIds: sigFieldIds,
-        createdAt: now,
-        expiresAt: now.add(const Duration(days: 7)),
-      );
-
-      final token = await createSigningRequest(request);
-      final url = 'https://formtract.web.app/sign/$token';
-      setState(() => _signingUrl = url);
-    } catch (e) {
-      setState(() => _requestError = e.toString());
-    } finally {
-      if (mounted) setState(() => _creatingRequest = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final canRequestSigning = widget.txId != 'new';
-
     return Scaffold(
       backgroundColor: kBgPage,
       appBar: AppBar(
         backgroundColor: Colors.white,
         title: const Text('Form Complete'),
-        leading: IconButton(icon: const Icon(Icons.close), onPressed: widget.onClose),
+        leading: IconButton(icon: const Icon(Icons.close), onPressed: onClose),
       ),
       body: Center(
-        child: SingleChildScrollView(
+        child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -1107,7 +1262,7 @@ class _DoneScreenState extends ConsumerState<_DoneScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                widget.template.name,
+                templateName,
                 style: Theme.of(context)
                     .textTheme
                     .bodyMedium
@@ -1116,7 +1271,7 @@ class _DoneScreenState extends ConsumerState<_DoneScreen> {
               ),
               const SizedBox(height: 32),
               SizedBox(
-                width: 280,
+                width: 240,
                 child: Column(
                   children: [
                     SizedBox(
@@ -1134,7 +1289,7 @@ class _DoneScreenState extends ConsumerState<_DoneScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: _emailPdf,
+                        onPressed: () => _emailPdf(context),
                         icon: const Icon(Icons.email_outlined, size: 18),
                         label: const Text('Email PDF'),
                         style: OutlinedButton.styleFrom(
@@ -1146,7 +1301,7 @@ class _DoneScreenState extends ConsumerState<_DoneScreen> {
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton.icon(
-                        onPressed: () => _copyLink(widget.pdfUrl),
+                        onPressed: () => _copyLink(context),
                         icon: const Icon(Icons.link, size: 18),
                         label: const Text('Copy Link'),
                         style: OutlinedButton.styleFrom(
@@ -1154,111 +1309,9 @@ class _DoneScreenState extends ConsumerState<_DoneScreen> {
                         ),
                       ),
                     ),
-                    if (canRequestSigning) ...[
-                      const SizedBox(height: 10),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: (_creatingRequest || _signingUrl != null)
-                              ? null
-                              : _requestSignature,
-                          icon: _creatingRequest
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.draw_outlined, size: 18),
-                          label: const Text('Request Client Signature'),
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size(0, 44),
-                          ),
-                        ),
-                      ),
-                    ],
-                    if (_requestError != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        _requestError!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                    if (_signingUrl != null) ...[
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: kBlueAccent.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: kBlueAccent.withValues(alpha: 0.3)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Signing link created (expires in 7 days)',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              _signingUrl!,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: kTextSecondary,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () => _copyLink(_signingUrl!),
-                                    icon: const Icon(Icons.copy, size: 14),
-                                    label: const Text('Copy'),
-                                    style: OutlinedButton.styleFrom(
-                                      minimumSize: const Size(0, 36),
-                                      textStyle: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton.icon(
-                                    onPressed: () async {
-                                      final subject = Uri.encodeComponent(
-                                        'Please sign: ${widget.template.name}',
-                                      );
-                                      final body = Uri.encodeComponent(
-                                        'Please sign the document at the link below:\n\n$_signingUrl',
-                                      );
-                                      final uri = Uri.parse(
-                                        'mailto:?subject=$subject&body=$body',
-                                      );
-                                      if (await canLaunchUrl(uri)) {
-                                        await launchUrl(uri);
-                                      }
-                                    },
-                                    icon: const Icon(Icons.send_outlined, size: 14),
-                                    label: const Text('Send'),
-                                    style: OutlinedButton.styleFrom(
-                                      minimumSize: const Size(0, 36),
-                                      textStyle: const TextStyle(fontSize: 12),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
                     const SizedBox(height: 16),
                     TextButton(
-                      onPressed: widget.onClose,
+                      onPressed: onClose,
                       child: const Text('Done'),
                     ),
                   ],
