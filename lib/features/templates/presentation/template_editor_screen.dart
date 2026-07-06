@@ -39,8 +39,7 @@ class TemplateEditorScreen extends ConsumerStatefulWidget {
       _TemplateEditorScreenState();
 }
 
-class _TemplateEditorScreenState
-    extends ConsumerState<TemplateEditorScreen> {
+class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
   FormTemplate? _template;
   List<FormFieldDef> _fields = [];
   int _selectedIndex = 0;
@@ -77,9 +76,7 @@ class _TemplateEditorScreenState
       if (snap == null) throw Exception('Template not found.');
 
       // Flatten steps → field list.
-      final fields = snap.steps
-          .expand((s) => s.fields)
-          .toList();
+      final fields = snap.steps.expand((s) => s.fields).toList();
 
       // Download PDF to get page dimensions and for viewer.
       final bytes = await StorageService.downloadTemplate(
@@ -92,10 +89,7 @@ class _TemplateEditorScreenState
         final doc = sf_pdf.PdfDocument(inputBytes: bytes);
         pageSizes = List.generate(
           doc.pages.count,
-          (i) => Size(
-            doc.pages[i].size.width,
-            doc.pages[i].size.height,
-          ),
+          (i) => Size(doc.pages[i].size.width, doc.pages[i].size.height),
         );
         doc.dispose();
       }
@@ -163,30 +157,21 @@ class _TemplateEditorScreenState
         final page = f.page ?? 1;
         byPage.putIfAbsent(page, () => []).add(f);
       }
-      final steps = byPage.entries
-          .toList()
-          ..sort((a, b) => a.key.compareTo(b.key));
+      final steps = byPage.entries.toList()
+        ..sort((a, b) => a.key.compareTo(b.key));
       final formSteps = steps
-          .map(
-            (e) => FormStep(
-              title: 'Page ${e.key}',
-              fields: e.value,
-            ),
-          )
+          .map((e) => FormStep(title: 'Page ${e.key}', fields: e.value))
           .toList();
 
       await saveTemplateSteps(template.id, formSteps);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Template saved.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Template saved.')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Save failed: $e'),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text('Save failed: $e'), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -234,10 +219,11 @@ class _TemplateEditorScreenState
     if (_fields.length <= 1) return;
     setState(() {
       _fields.removeAt(index);
-      _selectedIndex = (_selectedIndex >= _fields.length
-              ? _fields.length - 1
-              : _selectedIndex)
-          .clamp(0, _fields.length - 1);
+      _selectedIndex =
+          (_selectedIndex >= _fields.length
+                  ? _fields.length - 1
+                  : _selectedIndex)
+              .clamp(0, _fields.length - 1);
     });
   }
 
@@ -292,10 +278,17 @@ class _TemplateEditorScreenState
                       color: Colors.white70,
                     ),
                   )
-                : const Icon(Icons.auto_awesome, size: 16, color: Colors.white70),
+                : const Icon(
+                    Icons.auto_awesome,
+                    size: 16,
+                    color: Colors.white70,
+                  ),
             label: Text(
               'Re-detect',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 13,
+              ),
             ),
           ),
         if (_fields.isEmpty)
@@ -310,10 +303,17 @@ class _TemplateEditorScreenState
                       color: Colors.white70,
                     ),
                   )
-                : const Icon(Icons.auto_awesome, size: 16, color: Colors.white70),
+                : const Icon(
+                    Icons.auto_awesome,
+                    size: 16,
+                    color: Colors.white70,
+                  ),
             label: Text(
               'Detect Fields',
-              style: TextStyle(color: Colors.white.withValues(alpha: 0.8), fontSize: 13),
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.8),
+                fontSize: 13,
+              ),
             ),
           ),
         const SizedBox(width: 8),
@@ -346,10 +346,10 @@ class _TemplateEditorScreenState
         Expanded(child: _buildPdfPane()),
         Container(
           width: 360,
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            border: Border(left: BorderSide(color: kBorderColor)),
-          ),
+          // decoration: const BoxDecoration(
+          //   color: Colors.white,
+          //   border: Border(left: BorderSide(color: kBorderColor)),
+          // ),
           child: _buildFieldPanel(),
         ),
       ],
@@ -391,94 +391,92 @@ class _TemplateEditorScreenState
       );
     }
 
+    // SfPdfViewer requires bounded parent constraints — do NOT wrap in
+    // SingleChildScrollView. Let it fill the available pane and handle
+    // scrolling internally (single-page mode navigates via controller).
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewerWidth = constraints.maxWidth;
 
-        // Approximate page height from PDF aspect ratio.
+        // Page aspect ratio drives overlay coordinate scaling.
         Size pageSize = const Size(612, 792);
         if (_pageSizes.isNotEmpty && _viewingPage <= _pageSizes.length) {
           pageSize = _pageSizes[_viewingPage - 1];
         }
-        final scale = viewerWidth / pageSize.width;
-        final viewerHeight = (pageSize.height * scale)
-            .clamp(300.0, constraints.maxHeight);
+        // Height the PDF page occupies when scaled to fill viewerWidth.
+        final renderedPageHeight = viewerWidth / pageSize.width * pageSize.height;
 
         final currentPageFields = _fields
             .where((f) => (f.page ?? 1) == _viewingPage)
             .toList();
 
-        return SingleChildScrollView(
-          child: SizedBox(
-            width: viewerWidth,
-            height: viewerHeight,
-            child: Stack(
-              children: [
-                // PDF background
-                SfPdfViewer.memory(
-                  _pdfBytes!,
-                  controller: _viewerController,
-                  pageLayoutMode: PdfPageLayoutMode.single,
-                  enableDoubleTapZooming: false,
-                  canShowScrollHead: false,
-                  canShowScrollStatus: false,
-                  canShowPageLoadingIndicator: false,
-                  pageSpacing: 0,
-                  onPageChanged: (details) {
-                    if (details.newPageNumber != _viewingPage) {
-                      setState(() => _viewingPage = details.newPageNumber);
-                    }
-                  },
-                ),
+        return Stack(
+          children: [
+            // PDF fills the entire pane; SfPdfViewer handles its own scrolling.
+            SfPdfViewer.memory(
+              _pdfBytes!,
+              controller: _viewerController,
+              pageLayoutMode: PdfPageLayoutMode.single,
+              enableDoubleTapZooming: false,
+              canShowScrollHead: false,
+              canShowScrollStatus: false,
+              canShowPageLoadingIndicator: false,
+              pageSpacing: 0,
+              onPageChanged: (details) {
+                if (details.newPageNumber != _viewingPage) {
+                  setState(() => _viewingPage = details.newPageNumber);
+                }
+              },
+            ),
 
-                // Field overlays
-                ...currentPageFields.map((field) {
-                  final fieldIndex = _fields.indexOf(field);
-                  final isSelected = fieldIndex == _selectedIndex;
-                  final color = isSelected ? kBlueAccent : Colors.orange;
-                  return Positioned(
-                    left: (field.x ?? 0) / 100 * viewerWidth,
-                    top: (field.y ?? 0) / 100 * viewerHeight,
-                    width:
-                        ((field.width ?? 10) / 100 * viewerWidth).clamp(20, viewerWidth),
-                    height:
-                        ((field.height ?? 4) / 100 * viewerHeight).clamp(14, viewerHeight),
-                    child: GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _selectField(fieldIndex),
+            // Field overlays — percentage coords scaled to rendered page size.
+            ...currentPageFields.map((field) {
+              final fieldIndex = _fields.indexOf(field);
+              final isSelected = fieldIndex == _selectedIndex;
+              final color = isSelected ? kBlueAccent : Colors.orange;
+              return Positioned(
+                left: (field.x ?? 0) / 100 * viewerWidth,
+                top: (field.y ?? 0) / 100 * renderedPageHeight,
+                width: ((field.width ?? 10) / 100 * viewerWidth)
+                    .clamp(20.0, viewerWidth),
+                height: ((field.height ?? 4) / 100 * renderedPageHeight)
+                    .clamp(14.0, renderedPageHeight),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => _selectField(fieldIndex),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: color,
+                        width: isSelected ? 2 : 1,
+                      ),
+                      color: color.withValues(
+                        alpha: isSelected ? 0.18 : 0.08,
+                      ),
+                    ),
+                    child: Align(
+                      alignment: Alignment.topLeft,
                       child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: color,
-                            width: isSelected ? 2 : 1,
-                          ),
-                          color: color.withValues(alpha: isSelected ? 0.18 : 0.08),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 3,
+                          vertical: 1,
                         ),
-                        child: Align(
-                          alignment: Alignment.topLeft,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 3,
-                              vertical: 1,
-                            ),
-                            color: color,
-                            child: Text(
-                              '${fieldIndex + 1}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 8,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                        color: color,
+                        child: Text(
+                          '${fieldIndex + 1}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 8,
+                            fontWeight: FontWeight.bold,
                           ),
                         ),
                       ),
                     ),
-                  );
-                }),
-              ],
-            ),
-          ),
+                  ),
+                ),
+              );
+            }),
+          ],
         );
       },
     );
@@ -525,9 +523,9 @@ class _TemplateEditorScreenState
         // Navigation header
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: kBorderColor)),
-          ),
+          // decoration: const BoxDecoration(
+          //   border: Border(bottom: BorderSide(color: kBorderColor)),
+          // ),
           child: Row(
             children: [
               IconButton(
@@ -588,9 +586,9 @@ class _TemplateEditorScreenState
         // Field list mini-nav
         Container(
           height: 160,
-          decoration: const BoxDecoration(
-            border: Border(top: BorderSide(color: kBorderColor)),
-          ),
+          // decoration: const BoxDecoration(
+          //   border: Border(top: BorderSide(color: kBorderColor)),
+          // ),
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(vertical: 4),
             itemCount: _fields.length,
@@ -623,8 +621,9 @@ class _TemplateEditorScreenState
                   f.label,
                   style: TextStyle(
                     fontSize: 13,
-                    fontWeight:
-                        isSelected ? FontWeight.w600 : FontWeight.normal,
+                    fontWeight: isSelected
+                        ? FontWeight.w600
+                        : FontWeight.normal,
                   ),
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -802,7 +801,8 @@ class _FieldEditorState extends State<_FieldEditor> {
             decoration: const InputDecoration(labelText: 'Page', isDense: true),
             items: List.generate(
               widget.pageCount,
-              (i) => DropdownMenuItem(value: i + 1, child: Text('Page ${i + 1}')),
+              (i) =>
+                  DropdownMenuItem(value: i + 1, child: Text('Page ${i + 1}')),
             ),
             onChanged: (v) => _emit(f.copyWith(page: v)),
           ),
@@ -855,7 +855,11 @@ class _FieldEditorState extends State<_FieldEditor> {
             width: double.infinity,
             child: OutlinedButton.icon(
               onPressed: widget.onDelete,
-              icon: const Icon(Icons.delete_outline, size: 16, color: Colors.red),
+              icon: const Icon(
+                Icons.delete_outline,
+                size: 16,
+                color: Colors.red,
+              ),
               label: const Text(
                 'Delete Field',
                 style: TextStyle(color: Colors.red),
@@ -891,9 +895,7 @@ class _PosFieldState extends State<_PosField> {
   @override
   void initState() {
     super.initState();
-    _ctrl = TextEditingController(
-      text: widget.value.toStringAsFixed(1),
-    );
+    _ctrl = TextEditingController(text: widget.value.toStringAsFixed(1));
   }
 
   @override
