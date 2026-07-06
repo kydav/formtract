@@ -41,9 +41,7 @@ class TransactionsScreen extends ConsumerWidget {
               loading: () => const Center(child: CircularProgressIndicator()),
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (txs) => txs.isEmpty
-                  ? _EmptyState(
-                      onNew: () => _showNewTransaction(context, ref),
-                    )
+                  ? _EmptyState(onNew: () => _showNewTransaction(context, ref))
                   : _TransactionList(transactions: txs),
             ),
           ),
@@ -102,10 +100,9 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Create a transaction to group forms for a deal.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: kTextSecondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
@@ -198,8 +195,7 @@ class _TransactionCard extends ConsumerWidget {
                 ),
               ),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(6),
@@ -257,22 +253,26 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
       final agent = ref.read(agentProfileProvider).value;
       final uid = auth.currentUser!.uid;
       final now = DateTime.now();
-      final txId = await createTransaction(Transaction(
-        id: '',
-        agentId: uid,
-        boardId: agent?.boardId ?? uid,
-        propertyAddress: _addressCtrl.text.trim(),
-        propertyCity:
-            _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
-        propertyState:
-            _stateCtrl.text.trim().isEmpty ? null : _stateCtrl.text.trim(),
-        buyerContactId: _buyer?.id,
-        createdAt: now,
-        updatedAt: now,
-      ));
+      final txId = await createTransaction(
+        Transaction(
+          id: '',
+          agentId: uid,
+          boardId: agent?.boardId ?? uid,
+          propertyAddress: _addressCtrl.text.trim(),
+          propertyCity: _cityCtrl.text.trim().isEmpty
+              ? null
+              : _cityCtrl.text.trim(),
+          propertyState: _stateCtrl.text.trim().isEmpty
+              ? null
+              : _stateCtrl.text.trim(),
+          buyerContactId: _buyer?.id,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
       if (!mounted) return;
       Navigator.pop(this.context);
-      this.context.push('/transactions/$txId');
+      await this.context.push('/transactions/$txId');
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(this.context).showSnackBar(
@@ -286,9 +286,9 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
   Future<void> _pickBuyer(BuildContext context) async {
     final contacts = ref.read(contactsProvider).value ?? [];
     if (contacts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Add contacts first.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Add contacts first.')));
       return;
     }
     final picked = await showDialog<Contact>(

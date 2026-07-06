@@ -20,25 +20,21 @@ final agentProfileProvider = StreamProvider<Agent?>((ref) {
   final uid = auth.currentUser!.uid;
   final email = auth.userEmail;
 
-  return _db
-      .collection('agents')
-      .doc(uid)
-      .snapshots()
-      .asyncMap((snap) async {
-        if (!snap.exists) {
-          await _db.collection('agents').doc(uid).set({
-            'boardId': uid,
-            'email': email,
-            'firstName': '',
-            'lastName': '',
-            'role': 'admin',
-            'createdAt': FieldValue.serverTimestamp(),
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
-          return null;
-        }
-        return Agent.fromFirestore(snap);
+  return _db.collection('agents').doc(uid).snapshots().asyncMap((snap) async {
+    if (!snap.exists) {
+      await _db.collection('agents').doc(uid).set({
+        'boardId': uid,
+        'email': email,
+        'firstName': '',
+        'lastName': '',
+        'role': 'admin',
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
       });
+      return null;
+    }
+    return Agent.fromFirestore(snap);
+  });
 });
 
 /// Creates an agent profile if one doesn't exist yet (called after first sign-up).
@@ -51,14 +47,16 @@ Future<void> ensureAgentProfile({
   final snap = await ref.get();
   if (!snap.exists) {
     final now = DateTime.now();
-    await ref.set(Agent(
-      id: uid,
-      boardId: boardId,
-      email: email,
-      firstName: '',
-      lastName: '',
-      createdAt: now,
-    ).toFirestore());
+    await ref.set(
+      Agent(
+        id: uid,
+        boardId: boardId,
+        email: email,
+        firstName: '',
+        lastName: '',
+        createdAt: now,
+      ).toFirestore(),
+    );
   }
 }
 
@@ -79,20 +77,24 @@ final transactionsProvider = StreamProvider<List<tx_model.Transaction>>((ref) {
 /// A single transaction by ID.
 final transactionByIdProvider =
     StreamProvider.family<tx_model.Transaction?, String>((ref, txId) {
-  return _db
-      .collection('transactions')
-      .doc(txId)
-      .snapshots()
-      .map((s) => s.exists ? tx_model.Transaction.fromFirestore(s) : null);
-});
+      return _db
+          .collection('transactions')
+          .doc(txId)
+          .snapshots()
+          .map((s) => s.exists ? tx_model.Transaction.fromFirestore(s) : null);
+    });
 
 Future<String> createTransaction(tx_model.Transaction transaction) async {
-  final ref = await _db.collection('transactions').add(transaction.toFirestore());
+  final ref = await _db
+      .collection('transactions')
+      .add(transaction.toFirestore());
   return ref.id;
 }
 
 Future<void> updateTransactionStatus(
-    String txId, tx_model.TransactionStatus status) async {
+  String txId,
+  tx_model.TransactionStatus status,
+) async {
   await _db.collection('transactions').doc(txId).update({
     'status': status.name,
     'updatedAt': FieldValue.serverTimestamp(),
@@ -100,9 +102,11 @@ Future<void> updateTransactionStatus(
 }
 
 Future<void> updateTransactionContact(
-    String txId, {String? buyerContactId}) async {
+  String txId, {
+  String? buyerContactId,
+}) async {
   await _db.collection('transactions').doc(txId).update({
-    if (buyerContactId != null) 'buyerContactId': buyerContactId,
+    'buyerContactId': ?buyerContactId,
     'updatedAt': FieldValue.serverTimestamp(),
   });
 }
@@ -126,8 +130,10 @@ final contactsProvider = StreamProvider<List<Contact>>((ref) {
 });
 
 /// A single contact by ID.
-final contactByIdProvider =
-    StreamProvider.family<Contact?, String>((ref, contactId) {
+final contactByIdProvider = StreamProvider.family<Contact?, String>((
+  ref,
+  contactId,
+) {
   if (contactId.isEmpty) return Stream.value(null);
   return _db
       .collection('contacts')
@@ -142,7 +148,10 @@ Future<String> createContact(Contact contact) async {
 }
 
 Future<void> updateContact(Contact contact) async {
-  await _db.collection('contacts').doc(contact.id).update(contact.toFirestore());
+  await _db
+      .collection('contacts')
+      .doc(contact.id)
+      .update(contact.toFirestore());
 }
 
 Future<void> deleteContact(String contactId) async {
@@ -152,19 +161,22 @@ Future<void> deleteContact(String contactId) async {
 // ─── Form templates ───────────────────────────────────────────────────────────
 
 /// All form templates for a given board.
-final formTemplatesProvider =
-    StreamProvider.family<List<FormTemplate>, String>((ref, boardId) {
-  return _db
-      .collection('form_templates')
-      .where('boardId', isEqualTo: boardId)
-      .orderBy('name')
-      .snapshots()
-      .map((s) => s.docs.map(FormTemplate.fromFirestore).toList());
-});
+final formTemplatesProvider = StreamProvider.family<List<FormTemplate>, String>(
+  (ref, boardId) {
+    return _db
+        .collection('form_templates')
+        .where('boardId', isEqualTo: boardId)
+        .orderBy('name')
+        .snapshots()
+        .map((s) => s.docs.map(FormTemplate.fromFirestore).toList());
+  },
+);
 
 /// A single template by id.
-final formTemplateByIdProvider =
-    StreamProvider.family<FormTemplate?, String>((ref, templateId) {
+final formTemplateByIdProvider = StreamProvider.family<FormTemplate?, String>((
+  ref,
+  templateId,
+) {
   return _db
       .collection('form_templates')
       .doc(templateId)
@@ -175,8 +187,10 @@ final formTemplateByIdProvider =
 // ─── Filled forms ─────────────────────────────────────────────────────────────
 
 /// All filled forms for a transaction, newest first.
-final filledFormsProvider =
-    StreamProvider.family<List<FilledForm>, String>((ref, txId) {
+final filledFormsProvider = StreamProvider.family<List<FilledForm>, String>((
+  ref,
+  txId,
+) {
   return _db
       .collection('transactions')
       .doc(txId)
@@ -197,14 +211,16 @@ Future<String> createFilledForm({
       .collection('filled_forms')
       .doc();
   final now = DateTime.now();
-  await ref.set(FilledForm(
-    id: ref.id,
-    transactionId: txId,
-    templateId: templateId,
-    templateName: templateName,
-    createdAt: now,
-    updatedAt: now,
-  ).toFirestore());
+  await ref.set(
+    FilledForm(
+      id: ref.id,
+      transactionId: txId,
+      templateId: templateId,
+      templateName: templateName,
+      createdAt: now,
+      updatedAt: now,
+    ).toFirestore(),
+  );
   return ref.id;
 }
 
@@ -219,9 +235,9 @@ Future<void> saveFilledFormDraft(
       .collection('filled_forms')
       .doc(formId)
       .update({
-    'fieldValues': fieldValues,
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+        'fieldValues': fieldValues,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 }
 
 Future<void> completeFilledForm(
@@ -235,10 +251,10 @@ Future<void> completeFilledForm(
       .collection('filled_forms')
       .doc(formId)
       .update({
-    'status': 'complete',
-    'pdfStoragePath': pdfStoragePath,
-    'updatedAt': FieldValue.serverTimestamp(),
-  });
+        'status': 'complete',
+        'pdfStoragePath': pdfStoragePath,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
 }
 
 Future<Contact?> fetchContact(String contactId) async {

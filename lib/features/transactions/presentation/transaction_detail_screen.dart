@@ -14,19 +14,16 @@ import 'package:intl/intl.dart';
 
 class TransactionDetailScreen extends ConsumerWidget {
   final String txId;
-  const TransactionDetailScreen({super.key, required this.txId});
+  const TransactionDetailScreen({required this.txId, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final txAsync = ref.watch(transactionByIdProvider(txId));
 
     return txAsync.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
-      error: (e, _) => Scaffold(
-        body: Center(child: Text('Error: $e')),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
       data: (tx) {
         if (tx == null) {
           return Scaffold(
@@ -84,12 +81,11 @@ class _TransactionDetailView extends ConsumerWidget {
                       ),
                       if (tx.propertyCity != null || tx.propertyState != null)
                         Text(
-                          [tx.propertyCity, tx.propertyState]
-                              .where((s) => s?.isNotEmpty ?? false)
-                              .join(', '),
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          [
+                            tx.propertyCity,
+                            tx.propertyState,
+                          ].where((s) => s?.isNotEmpty ?? false).join(', '),
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: kTextSecondary),
                         ),
                     ],
@@ -133,7 +129,11 @@ class _TransactionDetailView extends ConsumerWidget {
                       value: 'delete',
                       child: Row(
                         children: [
-                          Icon(Icons.delete_outline, color: Colors.red, size: 18),
+                          Icon(
+                            Icons.delete_outline,
+                            color: Colors.red,
+                            size: 18,
+                          ),
                           SizedBox(width: 8),
                           Text('Delete', style: TextStyle(color: Colors.red)),
                         ],
@@ -214,9 +214,7 @@ class _TransactionDetailView extends ConsumerWidget {
     );
     if (picked != null) {
       await updateTransactionContact(tx.id, buyerContactId: picked.id);
-    } else if (picked == null &&
-        context.mounted &&
-        tx.buyerContactId != null) {
+    } else if (picked == null && context.mounted && tx.buyerContactId != null) {
       // null sentinel from "Remove" button
     }
   }
@@ -234,7 +232,7 @@ class _TransactionDetailView extends ConsumerWidget {
       builder: (ctx) => _TemplatePicker(templates: templates),
     );
     if (template != null && context.mounted) {
-      context.push('/fill/${tx.id}/${template.id}');
+      await context.push('/fill/${tx.id}/${template.id}');
     }
   }
 }
@@ -361,19 +359,16 @@ class _BuyerSection extends ConsumerWidget {
                         if (buyer!.email != null)
                           Text(
                             buyer!.email!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
+                            style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: kTextSecondary),
                           ),
                       ],
                     )
                   : Text(
                       'No buyer linked',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodyMedium
-                          ?.copyWith(color: kTextSecondary),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
                     ),
             ),
             TextButton(
@@ -416,10 +411,9 @@ class _EmptyForms extends StatelessWidget {
             const SizedBox(height: 12),
             Text(
               'No forms yet',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: kTextSecondary),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
@@ -493,19 +487,14 @@ class _FormCard extends StatelessWidget {
                     ),
                     Text(
                       '${isDone ? 'Completed' : 'Draft'} · ${fmt.format(form.updatedAt)}',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: kTextSecondary),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: kTextSecondary),
                     ),
                   ],
                 ),
               ),
-              const Icon(
-                Icons.chevron_right,
-                color: kTextSecondary,
-                size: 20,
-              ),
+              const Icon(Icons.chevron_right, color: kTextSecondary, size: 20),
             ],
           ),
         ),
