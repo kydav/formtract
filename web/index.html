@@ -31,10 +31,14 @@
 
   <title>formtract</title>
   <link rel="manifest" href="manifest.json">
-  <!-- Required by syncfusion_flutter_pdfviewer for web rendering -->
-  <script src="assets/packages/syncfusion_flutter_pdfviewer/assets/scripts/pdf.js" type="text/javascript"></script>
 </head>
 <body>
+  <!-- Required by syncfusion_flutter_pdfviewer (v4+ module approach) -->
+  <script type="module">
+    import * as pdfjsLib from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.min.mjs';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.10.38/pdf.worker.min.mjs';
+    globalThis.pdfjsLib = pdfjsLib;
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
