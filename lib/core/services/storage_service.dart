@@ -99,4 +99,23 @@ class StorageService {
   /// Gets a download URL from an arbitrary storage path stored in Firestore.
   static Future<String> urlFromPath(String storagePath) =>
       _storage.ref(storagePath).getDownloadURL();
+
+  // ── Remote signing ─────────────────────────────────────────────────────────
+
+  /// Uploads a client-signed PDF and returns the Storage path.
+  static Future<String> uploadSignedForm(
+    Uint8List pdfBytes,
+    String token,
+  ) async {
+    final path = 'signing/$token/signed.pdf';
+    await _storage.ref(path).putData(
+      pdfBytes,
+      SettableMetadata(contentType: 'application/pdf'),
+    );
+    return path;
+  }
+
+  /// Returns a download URL for a signed form.
+  static Future<String> signedFormDownloadUrl(String token) =>
+      _storage.ref('signing/$token/signed.pdf').getDownloadURL();
 }

@@ -6,8 +6,9 @@ import 'package:formtract/features/auth/presentation/login_screen.dart';
 import 'package:formtract/features/contacts/presentation/contacts_screen.dart';
 import 'package:formtract/features/dashboard/presentation/dashboard_screen.dart';
 import 'package:formtract/features/forms/presentation/form_filler_screen.dart';
-import 'package:formtract/features/templates/presentation/templates_screen.dart';
 import 'package:formtract/features/settings/presentation/settings_screen.dart';
+import 'package:formtract/features/signing/presentation/remote_signing_screen.dart';
+import 'package:formtract/features/templates/presentation/templates_screen.dart';
 import 'package:formtract/features/transactions/presentation/transaction_detail_screen.dart';
 import 'package:formtract/features/transactions/presentation/transactions_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -20,7 +21,8 @@ final routerProvider = Provider<GoRouter>((ref) {
     redirect: (BuildContext context, GoRouterState state) {
       final loggedIn = authNotifier.isLoggedIn;
       final onLogin = state.matchedLocation == '/login';
-      if (!loggedIn && !onLogin) return '/login';
+      final onSigning = state.matchedLocation.startsWith('/sign/');
+      if (!loggedIn && !onLogin && !onSigning) return '/login';
       if (loggedIn && onLogin) return '/dashboard';
       return null;
     },
@@ -28,6 +30,13 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/login',
         builder: (context, state) => const LoginScreen(),
+      ),
+      // Public token-gated signing page — no auth required.
+      GoRoute(
+        path: '/sign/:token',
+        builder: (context, state) => RemoteSigningScreen(
+          token: state.pathParameters['token']!,
+        ),
       ),
       // Full-screen form filler — outside the shell so it has no nav chrome.
       // Path: /fill/:txId/:templateId   (txId == 'new' for testing from templates)

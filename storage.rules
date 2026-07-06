@@ -26,6 +26,18 @@ service firebase.storage {
                          && request.auth.uid == agentId;
     }
 
+    // ── Remote signing ───────────────────────────────────────────────────────
+    // Stored at: signing/{token}/signed.pdf
+    // Writable by any authenticated user (including anonymous — the signer).
+    // Readable publicly so the agent and signer can download the signed PDF.
+
+    match /signing/{token}/{fileName} {
+      allow read:  if true;
+      allow write: if request.auth != null
+                   && request.resource.contentType.matches('application/pdf')
+                   && request.resource.size < 50 * 1024 * 1024;
+    }
+
     // ── Deny everything else ─────────────────────────────────────────────────
     match /{allPaths=**} {
       allow read, write: if false;

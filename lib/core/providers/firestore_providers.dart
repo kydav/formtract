@@ -4,6 +4,7 @@ import 'package:formtract/core/models/agent.dart';
 import 'package:formtract/core/models/contact.dart';
 import 'package:formtract/core/models/filled_form.dart';
 import 'package:formtract/core/models/form_template.dart';
+import 'package:formtract/core/models/signing_request.dart';
 import 'package:formtract/core/models/transaction.dart' as tx_model;
 import 'package:formtract/core/providers/auth_provider.dart';
 
@@ -255,6 +256,46 @@ Future<void> completeFilledForm(
         'pdfStoragePath': pdfStoragePath,
         'updatedAt': FieldValue.serverTimestamp(),
       });
+}
+
+// ─── Signing requests ─────────────────────────────────────────────────────────
+
+/// A single signing request by token — readable without auth.
+final signingRequestProvider =
+    StreamProvider.family<SigningRequest?, String>((ref, token) {
+  return _db
+      .collection('signing_requests')
+      .doc(token)
+      .snapshots()
+      .map((s) => s.exists ? SigningRequest.fromFirestore(s) : null);
+});
+
+/// All pending signing requests for a given filledFormId (watched by agent).
+final pendingSigningRequestsProvider =
+    StreamProvider.family<List<SigningRequest>, String>((ref, filledFormId) {
+  return _db
+      .collection('signing_requests')
+      .where('filledFormId', isEqualTo: filledFormId)
+      .where('status', isEqualTo: 'pending')
+      .snapshots()
+      .map((s) => s.docs.map(SigningRequest.fromFirestore).toList());
+});
+
+Future<String> createSigningRequest(SigningRequest request) async {
+  final doc = _db.collection('signing_requests').doc();
+  await doc.set(request.toFirestore());
+  return doc.id;
+}
+
+Future<void> completeSigningRequest(
+  String token,
+  String signedPdfStoragePath,
+) async {
+  await _db.collection('signing_requests').doc(token).update({
+    'status': 'signed',
+    'signedAt': FieldValue.serverTimestamp(),
+    'signedPdfStoragePath': signedPdfStoragePath,
+  });
 }
 
 Future<Contact?> fetchContact(String contactId) async {

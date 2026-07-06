@@ -73,6 +73,24 @@ service cloud.firestore {
       }
     }
 
+    // ── Signing requests ─────────────────────────────────────────────────────
+    // Token-gated: anyone who has the URL can read and complete the signing.
+    // Only the owning agent can create. Completing (status → signed) is open
+    // because the signer is not authenticated.
+
+    match /signing_requests/{token} {
+      allow read:   if true;
+      allow create: if isOwner(request.resource.data.agentId);
+      allow update: if resource.data.status == 'pending'
+                    && request.resource.data.status == 'signed'
+                    && request.resource.data.keys().hasOnly([
+                         'agentId','transactionId','filledFormId','templateId',
+                         'templateName','boardId','fieldValues','signatureFieldIds',
+                         'status','createdAt','expiresAt','signedAt',
+                         'signedPdfStoragePath'
+                       ]);
+    }
+
     // ── Form templates ────────────────────────────────────────────────────────
     // Templates are board-level. All agents in a board can read and write.
     // Tighten to isBoardAdmin once multi-agent boards are implemented.

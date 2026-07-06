@@ -788,4 +788,3 @@ class _ProfileDrawer extends ConsumerWidget {
     );
   }
 }
-}

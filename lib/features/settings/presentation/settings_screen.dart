@@ -127,7 +127,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           child: Container(
                             width: 80,
                             height: 80,
-                            decoration: BoxDecoration(
+                            decoration: const BoxDecoration(
                               color: kBlueAccent,
                               shape: BoxShape.circle,
                             ),
