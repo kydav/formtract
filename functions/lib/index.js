@@ -4,7 +4,7 @@ exports.detectFormFields = exports.sendSigningEmail = void 0;
 const admin = require("firebase-admin");
 const functions = require("firebase-functions");
 const sgMail = require("@sendgrid/mail");
-const vertexai_1 = require("@google-cloud/vertexai");
+const sdk_1 = require("@anthropic-ai/sdk");
 admin.initializeApp();
 // Set via: firebase functions:secrets:set SENDGRID_API_KEY
 // Or legacy config: firebase functions:config:set sendgrid.api_key="SG.xxx"
@@ -104,7 +104,7 @@ Return ONLY a valid JSON array. No explanation, no markdown fences, no extra tex
 exports.detectFormFields = functions
     .runWith({ timeoutSeconds: 120, memory: '512MB' })
     .https.onCall(async (data, context) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+    var _a, _b, _c;
     if (!context.auth) {
         throw new functions.https.HttpsError('unauthenticated', 'Must be signed in.');
     }
@@ -117,32 +117,44 @@ exports.detectFormFields = functions
     const file = bucket.file(`templates/${boardId}/${templateId}.pdf`);
     const [pdfBytes] = await file.download();
     const base64Pdf = pdfBytes.toString('base64');
-    // Call Vertex AI Gemini 2.0 Flash.
-    const projectId = (_b = (_a = process.env['GCLOUD_PROJECT']) !== null && _a !== void 0 ? _a : process.env['GOOGLE_CLOUD_PROJECT']) !== null && _b !== void 0 ? _b : 'formtract';
-    const vertex = new vertexai_1.VertexAI({ project: projectId, location: 'us-central1' });
-    const model = vertex.getGenerativeModel({ model: 'gemini-1.5-flash' });
-    const result = await model.generateContent({
-        contents: [{
+    // Call Claude via Anthropic API.
+    const anthropicKey = (_a = process.env['ANTHROPIC_API_KEY']) !== null && _a !== void 0 ? _a : '';
+    if (!anthropicKey) {
+        throw new functions.https.HttpsError('internal', 'ANTHROPIC_API_KEY not configured. Run: firebase functions:secrets:set ANTHROPIC_API_KEY');
+    }
+    const anthropic = new sdk_1.default({ apiKey: anthropicKey });
+    const message = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages: [{
                 role: 'user',
-                parts: [
-                    { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-                    { text: FIELD_DETECTION_PROMPT },
+                content: [
+                    {
+                        type: 'document',
+                        source: {
+                            type: 'base64',
+                            media_type: 'application/pdf',
+                            data: base64Pdf,
+                        },
+                    },
+                    { type: 'text', text: FIELD_DETECTION_PROMPT },
                 ],
             }],
-        generationConfig: { responseMimeType: 'application/json' },
     });
-    const rawText = (_h = (_g = (_f = (_e = (_d = (_c = result.response.candidates) === null || _c === void 0 ? void 0 : _c[0]) === null || _d === void 0 ? void 0 : _d.content) === null || _e === void 0 ? void 0 : _e.parts) === null || _f === void 0 ? void 0 : _f[0]) === null || _g === void 0 ? void 0 : _g.text) !== null && _h !== void 0 ? _h : '[]';
+    const rawText = ((_b = message.content[0]) === null || _b === void 0 ? void 0 : _b.type) === 'text' ? message.content[0].text : '[]';
+    // Strip any accidental markdown fences
+    const jsonText = rawText.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
     let fields;
     try {
-        fields = JSON.parse(rawText);
+        fields = JSON.parse(jsonText);
     }
-    catch (_k) {
+    catch (_d) {
         throw new functions.https.HttpsError('internal', `AI returned invalid JSON: ${rawText.slice(0, 200)}`);
     }
     // Group fields into steps by page, then save the full template schema.
     const byPage = new Map();
     for (const f of fields) {
-        const page = (_j = f.page) !== null && _j !== void 0 ? _j : 1;
+        const page = (_c = f.page) !== null && _c !== void 0 ? _c : 1;
         if (!byPage.has(page))
             byPage.set(page, []);
         byPage.get(page).push(f);

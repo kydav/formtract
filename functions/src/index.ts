@@ -1,7 +1,7 @@
 import * as admin from 'firebase-admin';
 import * as functions from 'firebase-functions';
 import * as sgMail from '@sendgrid/mail';
-import { VertexAI } from '@google-cloud/vertexai';
+import Anthropic from '@anthropic-ai/sdk';
 
 admin.initializeApp();
 
@@ -154,27 +154,39 @@ export const detectFormFields = functions
     const [pdfBytes] = await file.download();
     const base64Pdf = pdfBytes.toString('base64');
 
-    // Call Vertex AI Gemini 2.0 Flash.
-    const projectId = process.env['GCLOUD_PROJECT'] ?? process.env['GOOGLE_CLOUD_PROJECT'] ?? 'formtract';
-    const vertex = new VertexAI({ project: projectId, location: 'us-central1' });
-    const model = vertex.getGenerativeModel({ model: 'gemini-1.5-flash' });
+    // Call Claude via Anthropic API.
+    const anthropicKey = process.env['ANTHROPIC_API_KEY'] ?? '';
+    if (!anthropicKey) {
+      throw new functions.https.HttpsError('internal', 'ANTHROPIC_API_KEY not configured. Run: firebase functions:secrets:set ANTHROPIC_API_KEY');
+    }
+    const anthropic = new Anthropic({ apiKey: anthropicKey });
 
-    const result = await model.generateContent({
-      contents: [{
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      messages: [{
         role: 'user',
-        parts: [
-          { inlineData: { mimeType: 'application/pdf', data: base64Pdf } },
-          { text: FIELD_DETECTION_PROMPT },
+        content: [
+          {
+            type: 'document' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: 'application/pdf' as const,
+              data: base64Pdf,
+            },
+          },
+          { type: 'text' as const, text: FIELD_DETECTION_PROMPT },
         ],
       }],
-      generationConfig: { responseMimeType: 'application/json' },
     });
 
-    const rawText = result.response.candidates?.[0]?.content?.parts?.[0]?.text ?? '[]';
+    const rawText = message.content[0]?.type === 'text' ? message.content[0].text : '[]';
+    // Strip any accidental markdown fences
+    const jsonText = rawText.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
 
     let fields: DetectedField[];
     try {
-      fields = JSON.parse(rawText) as DetectedField[];
+      fields = JSON.parse(jsonText) as DetectedField[];
     } catch {
       throw new functions.https.HttpsError('internal', `AI returned invalid JSON: ${rawText.slice(0, 200)}`);
     }
