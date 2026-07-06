@@ -137,7 +137,7 @@ For each field, return a JSON object with these exact properties:
 Return ONLY a valid JSON array. No explanation, no markdown fences, no extra text.`;
 
 export const detectFormFields = functions
-  .runWith({ timeoutSeconds: 120, memory: '512MB' })
+  .runWith({ timeoutSeconds: 120, memory: '512MB', secrets: ['ANTHROPIC_API_KEY'] })
   .https.onCall(async (data: { templateId: string; boardId: string }, context) => {
     if (!context.auth) {
       throw new functions.https.HttpsError('unauthenticated', 'Must be signed in.');

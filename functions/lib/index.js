@@ -102,7 +102,7 @@ For each field, return a JSON object with these exact properties:
 
 Return ONLY a valid JSON array. No explanation, no markdown fences, no extra text.`;
 exports.detectFormFields = functions
-    .runWith({ timeoutSeconds: 120, memory: '512MB' })
+    .runWith({ timeoutSeconds: 120, memory: '512MB', secrets: ['ANTHROPIC_API_KEY'] })
     .https.onCall(async (data, context) => {
     var _a, _b, _c;
     if (!context.auth) {
