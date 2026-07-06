@@ -7,6 +7,7 @@ import 'package:formtract/features/contacts/presentation/contacts_screen.dart';
 import 'package:formtract/features/dashboard/presentation/dashboard_screen.dart';
 import 'package:formtract/features/forms/presentation/form_filler_screen.dart';
 import 'package:formtract/features/templates/presentation/templates_screen.dart';
+import 'package:formtract/features/settings/presentation/settings_screen.dart';
 import 'package:formtract/features/transactions/presentation/transaction_detail_screen.dart';
 import 'package:formtract/features/transactions/presentation/transactions_screen.dart';
 import 'package:go_router/go_router.dart';
@@ -70,6 +71,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/contacts',
             pageBuilder: (context, state) =>
                 const NoTransitionPage(child: ContactsScreen()),
+          ),
+          GoRoute(
+            path: '/settings',
+            pageBuilder: (context, state) =>
+                const NoTransitionPage(child: SettingsScreen()),
           ),
         ],
       ),

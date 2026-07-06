@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:formtract/core/models/agent.dart';
 import 'package:formtract/core/providers/auth_provider.dart';
+import 'package:formtract/core/providers/firestore_providers.dart';
 import 'package:formtract/core/router/router.dart';
 import 'package:formtract/core/theme/app_theme.dart';
 import 'package:formtract/features/contacts/presentation/contacts_screen.dart';
@@ -184,7 +186,7 @@ class _Sidebar extends ConsumerWidget {
                 label: 'Settings',
               ),
               active: location.startsWith('/settings'),
-              onTap: () {}, // TODO(kyler): settings screen
+              onTap: () => ref.read(routerProvider).go('/settings'),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -372,16 +374,65 @@ class _DesktopTopBar extends ConsumerWidget {
 
 // ─── Mobile shell ─────────────────────────────────────────────────────────────
 
-class _MobileShell extends StatelessWidget {
+class _MobileShell extends ConsumerWidget {
   final String location;
   final Widget child;
 
   const _MobileShell({required this.location, required this.child});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authNotifierProvider);
+    final agent = ref.watch(agentProfileProvider).value;
+
     return Scaffold(
       backgroundColor: kBgPage,
+      appBar: AppBar(
+        backgroundColor: kNavyDark,
+        elevation: 0,
+        titleSpacing: 20,
+        title: Row(
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: kBlueAccent,
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Center(
+                child: Text(
+                  'F',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Text(
+              'formtract',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                letterSpacing: -0.3,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          Builder(
+            builder: (ctx) => IconButton(
+              icon: const Icon(Icons.menu, color: Colors.white),
+              onPressed: () => Scaffold.of(ctx).openEndDrawer(),
+            ),
+          ),
+        ],
+      ),
+      endDrawer: _ProfileDrawer(auth: auth, agent: agent),
       body: child,
       bottomNavigationBar: SafeArea(
         child: Padding(
@@ -625,4 +676,116 @@ class _BottomItem extends StatelessWidget {
       ),
     );
   }
+}
+
+// ── Profile drawer (mobile end drawer) ───────────────────────────────────────
+
+class _ProfileDrawer extends ConsumerWidget {
+  final AuthNotifier auth;
+  final Agent? agent;
+
+  const _ProfileDrawer({required this.auth, required this.agent});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final initials = agent?.initials ?? auth.userInitials;
+    final name = agent?.fullName.isNotEmpty == true
+        ? agent!.fullName
+        : auth.userName;
+
+    return Drawer(
+      backgroundColor: Colors.white,
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Profile header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+              child: Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: const BoxDecoration(
+                      color: kBlueAccent,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Text(
+                        initials,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          name,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: kTextPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          auth.userEmail,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: kTextSecondary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+
+            // Settings
+            ListTile(
+              leading: const Icon(Icons.settings_outlined, size: 22),
+              title: const Text('Profile & Settings'),
+              onTap: () {
+                Navigator.pop(context);
+                context.go('/settings');
+              },
+            ),
+
+            const Spacer(),
+            const Divider(height: 1),
+
+            // Sign out
+            ListTile(
+              leading: const Icon(
+                Icons.logout,
+                size: 22,
+                color: Colors.red,
+              ),
+              title: const Text(
+                'Sign Out',
+                style: TextStyle(color: Colors.red),
+              ),
+              onTap: () => auth.signOut(),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+}
 }
