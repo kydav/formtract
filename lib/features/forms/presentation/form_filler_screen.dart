@@ -16,7 +16,46 @@ import 'package:formtract/core/services/pdf_stamper.dart';
 import 'package:formtract/core/services/storage_service.dart';
 import 'package:formtract/core/theme/app_theme.dart';
 import 'package:go_router/go_router.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as sf_pdf;
+import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
 import 'package:url_launcher/url_launcher.dart';
+
+/// Represents one AcroForm field extracted from the PDF.
+class _AcroField {
+  final String name; // raw AcroForm name — key for stamping
+  final String label; // display label (prettified or from template)
+  final FormFieldType type;
+  final int page;
+  final List<String> options;
+  // Bounds in Syncfusion device coords (points, y from top of page).
+  final double rawLeft;
+  final double rawTop;
+  final double rawWidth;
+  final double rawHeight;
+  final double pageWidth;
+  final double pageHeight;
+
+  const _AcroField({
+    required this.name,
+    required this.label,
+    required this.type,
+    required this.page,
+    this.options = const [],
+    this.rawLeft = 0,
+    this.rawTop = 0,
+    this.rawWidth = 0,
+    this.rawHeight = 0,
+    this.pageWidth = 612,
+    this.pageHeight = 792,
+  });
+
+  bool get hasBounds => rawWidth > 0 && rawHeight > 0;
+
+  double get xFrac => pageWidth > 0 ? rawLeft / pageWidth : 0;
+  double get yFrac => pageHeight > 0 ? rawTop / pageHeight : 0;
+  double get wFrac => pageWidth > 0 ? rawWidth / pageWidth : 0;
+  double get hFrac => pageHeight > 0 ? rawHeight / pageHeight : 0;
+}
 
 /// Full-screen wizard for filling a form template on behalf of a transaction.
 ///
@@ -43,7 +82,14 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   FormTemplate? _template;
   FilledForm? _filledForm;
 
+  // AcroForm-driven fields (source of truth when PDF is available).
+  List<_AcroField> _acroFields = [];
+  List<int> _acroPages = []; // sorted unique page numbers with fields
+
+  // _step indexes into _acroPages.
   int _step = 0;
+
+  // Values keyed by AcroForm field NAME (not template field ID).
   final Map<String, dynamic> _values = {};
   final Map<String, TextEditingController> _controllers = {};
 
@@ -53,6 +99,11 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   bool _isRequestingSigning = false;
   String? _error;
   String? _completedPdfUrl;
+
+  Uint8List? _blankPdfBytes;
+  Uint8List? _previewPdfBytes;
+  int _previewVersion = 0;
+  final _pdfController = PdfViewerController();
 
   Timer? _saveTimer;
 
@@ -67,6 +118,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   @override
   void dispose() {
     _saveTimer?.cancel();
+    _pdfController.dispose();
     for (final c in _controllers.values) {
       c.dispose();
     }
@@ -79,7 +131,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     try {
       final db = FirebaseFirestore.instance;
 
-      // 1. Load template.
+      // 1. Load template (for autofill hints and contact mapping).
       final templateSnap = await db
           .collection('form_templates')
           .doc(widget.templateId)
@@ -87,7 +139,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       if (!templateSnap.exists) throw Exception('Template not found.');
       final template = FormTemplate.fromFirestore(templateSnap);
 
-      // 2. Load transaction if real.
+      // 2. Load transaction.
       tx_model.Transaction? transaction;
       if (widget.txId != 'new') {
         final txSnap = await db
@@ -99,7 +151,7 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
         }
       }
 
-      // 3. Check for an existing draft.
+      // 3. Check for existing draft.
       FilledForm? existing;
       if (widget.txId != 'new') {
         final q = await db
@@ -114,41 +166,322 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
           existing = FilledForm.fromFirestore(q.docs.first);
         }
       }
-
-      // 4. Create new draft if needed.
       final filledForm =
           existing ?? await _createDraft(txId: widget.txId, template: template);
 
-      // 5. Seed initial values from draft + autofill.
-      final values = Map<String, dynamic>.from(filledForm.fieldValues);
-      if (existing == null) {
-        await _autofill(values, template, transaction);
+      // 4. Download PDF and extract AcroForm fields.
+      final pdfBytes = await StorageService.downloadTemplate(
+        boardId: template.boardId,
+        templateId: template.id,
+      );
+
+      List<_AcroField> acroFields = [];
+      if (pdfBytes != null) {
+        acroFields = _extractAcroFields(pdfBytes, template);
       }
 
-      // 6. Build text controllers.
+      // Fall back to template fields if AcroForm extraction found nothing.
+      if (acroFields.isEmpty) {
+        acroFields = template.steps
+            .expand(
+              (s) => s.fields.map(
+                (f) => _AcroField(
+                  name: f.id,
+                  label: f.label,
+                  type: f.type,
+                  page: f.page ?? 1,
+                  options: f.options,
+                ),
+              ),
+            )
+            .toList();
+      }
+
+      final acroPages = acroFields.map((f) => f.page).toSet().toList()..sort();
+
+      // 5. Seed values: first restore from draft (AcroForm names), then autofill.
+      final values = Map<String, dynamic>.from(filledForm.fieldValues);
+      if (existing == null) {
+        await _autofillAcro(values, acroFields, transaction);
+      }
+
+      // 6. Build text controllers keyed by AcroForm name.
       final controllers = <String, TextEditingController>{};
-      for (final step in template.steps) {
-        for (final field in step.fields) {
-          if (_isTextField(field.type)) {
-            controllers[field.id] = TextEditingController(
-              text: values[field.id]?.toString() ?? '',
-            );
-          }
+      for (final f in acroFields) {
+        if (_isTextField(f.type)) {
+          controllers[f.name] = TextEditingController(
+            text: values[f.name]?.toString() ?? '',
+          );
         }
       }
 
       setState(() {
         _template = template;
         _filledForm = filledForm;
+        _acroFields = acroFields;
+        _acroPages = acroPages;
         _values.addAll(values);
         _controllers.addAll(controllers);
+        _blankPdfBytes = pdfBytes;
         _isLoading = false;
       });
+
+      // Kick off AI label generation in the background if not yet done.
+      if (template.fieldLabels.isEmpty && acroFields.isNotEmpty) {
+        unawaited(_triggerLabelFetch(template, acroFields));
+      }
     } catch (e) {
       setState(() {
         _error = e.toString();
         _isLoading = false;
       });
+    }
+  }
+
+  // ── AcroForm extraction ────────────────────────────────────────────────────
+
+  static String _normName(String s) =>
+      s.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+
+  static String _prettify(String name) {
+    return name
+        .replaceAll(RegExp('[_.]'), ' ')
+        .replaceAllMapped(RegExp('([a-z])([A-Z])'), (m) => '${m[1]} ${m[2]}')
+        .split(RegExp(r'\s+'))
+        .where((w) => w.isNotEmpty)
+        .map((w) => '${w[0].toUpperCase()}${w.substring(1)}')
+        .join(' ');
+  }
+
+  List<_AcroField> _extractAcroFields(
+    Uint8List pdfBytes,
+    FormTemplate template,
+  ) {
+    // AI labels from the cloud function take priority, then template step labels, then prettify.
+    final normToLabel = <String, String>{};
+    for (final step in template.steps) {
+      for (final f in step.fields) {
+        normToLabel[_normName(f.id)] = f.label;
+        normToLabel[_normName(f.label)] = f.label;
+      }
+    }
+
+    final doc = sf_pdf.PdfDocument(inputBytes: pdfBytes);
+    final form = doc.form;
+    final result = <_AcroField>[];
+
+    for (int i = 0; i < form.fields.count; i++) {
+      final field = form.fields[i];
+      final name = field.name ?? '';
+      if (name.isEmpty) continue;
+
+      final page = field.page;
+      final pageIndex = page != null ? doc.pages.indexOf(page) : 0;
+      // AI label (exact name match) → template label → prettified name
+      final label =
+          template.fieldLabels[name] ??
+          normToLabel[_normName(name)] ??
+          _prettify(name);
+
+      FormFieldType type = FormFieldType.text;
+      final options = <String>[];
+
+      if (field is sf_pdf.PdfCheckBoxField) {
+        type = FormFieldType.checkbox;
+      } else if (field is sf_pdf.PdfRadioButtonListField) {
+        type = FormFieldType.radio;
+        for (int j = 0; j < field.items.count; j++) {
+          options.add(field.items[j].value);
+        }
+      } else if (field is sf_pdf.PdfComboBoxField) {
+        type = FormFieldType.dropdown;
+        for (int j = 0; j < field.items.count; j++) {
+          options.add(field.items[j].text);
+        }
+      } else if (field is sf_pdf.PdfSignatureField) {
+        type = FormFieldType.signature;
+      }
+
+      final b = field.bounds;
+      final pageSize =
+          doc.pages[pageIndex < doc.pages.count ? pageIndex : 0].size;
+
+      result.add(
+        _AcroField(
+          name: name,
+          label: label,
+          type: type,
+          page: pageIndex + 1,
+          options: options,
+          rawLeft: b.left,
+          rawTop: b.top,
+          rawWidth: b.width,
+          rawHeight: b.height,
+          pageWidth: pageSize.width,
+          pageHeight: pageSize.height,
+        ),
+      );
+    }
+
+    doc.dispose();
+    return result;
+  }
+
+  // ── Autofill (AcroForm-aware) ──────────────────────────────────────────────
+
+  Future<void> _autofillAcro(
+    Map<String, dynamic> values,
+    List<_AcroField> fields,
+    tx_model.Transaction? transaction,
+  ) async {
+    final agent = ref.read(authNotifierProvider);
+
+    // Format closing date once for reuse.
+    final closingDateStr = transaction?.closingDate != null
+        ? '${transaction!.closingDate!.month.toString().padLeft(2, '0')}/'
+              '${transaction.closingDate!.day.toString().padLeft(2, '0')}/'
+              '${transaction.closingDate!.year}'
+        : null;
+    final priceStr = transaction?.purchasePrice != null
+        ? transaction!.purchasePrice!.toStringAsFixed(0)
+        : null;
+
+    for (final f in fields) {
+      if (values.containsKey(f.name)) continue;
+      final norm = _normName('${f.name} ${f.label}');
+
+      // Agent
+      if ((norm.contains('agentname') || norm.contains('brokername')) &&
+          agent.userName.isNotEmpty) {
+        values[f.name] = agent.userName;
+      } else if ((norm.contains('agentemail') ||
+              norm.contains('brokeremail')) &&
+          agent.userEmail.isNotEmpty) {
+        values[f.name] = agent.userEmail;
+      }
+
+      if (transaction == null) {
+        continue;
+      }
+      // Property address
+      else if (_matchAny(norm, [
+            'streetaddress',
+            'propertyaddress',
+            'subjectproperty',
+          ]) &&
+          transaction.propertyAddress.isNotEmpty) {
+        values[f.name] = transaction.propertyAddress;
+      } else if (norm == 'city' || norm == 'propertycity') {
+        values[f.name] = transaction.propertyCity ?? '';
+      } else if (norm == 'state' || norm == 'propertystate') {
+        values[f.name] = transaction.propertyState ?? '';
+      } else if (_matchAny(norm, ['zip', 'zipcode', 'postalcode'])) {
+        values[f.name] = transaction.propertyZip ?? '';
+      } else if (_matchAny(norm, ['county', 'countyin'])) {
+        values[f.name] = transaction.propertyCounty ?? '';
+      }
+      // Deal terms
+      else if (_matchAny(norm, [
+            'purchaseprice',
+            'saleprice',
+            'contractprice',
+          ]) &&
+          priceStr != null) {
+        values[f.name] = priceStr;
+      } else if (_matchAny(norm, [
+            'closingdate',
+            'settlementdate',
+            'closdate',
+          ]) &&
+          closingDateStr != null) {
+        values[f.name] = closingDateStr;
+      }
+      // Seller
+      else if (_matchAny(norm, ['seller', 'sellername', 'grantor']) &&
+          !norm.contains('broker') &&
+          transaction.sellerName != null) {
+        values[f.name] = transaction.sellerName!;
+      }
+      // Today's date (contract date)
+      else if (norm == 'date' ||
+          norm == 'contractdate' ||
+          norm == 'agreementdate') {
+        final now = DateTime.now();
+        values[f.name] =
+            '${now.month.toString().padLeft(2, '0')}/${now.day.toString().padLeft(2, '0')}/${now.year}';
+      }
+    }
+
+    // Buyer contact info
+    if (transaction != null &&
+        transaction.buyerContactId != null &&
+        transaction.buyerContactId!.isNotEmpty) {
+      final buyer = await fetchContact(transaction.buyerContactId!);
+      if (buyer != null) {
+        for (final f in fields) {
+          if (values.containsKey(f.name)) continue;
+          final norm = _normName('${f.name} ${f.label}');
+          final isBuyer =
+              norm.contains('buyer') ||
+              norm.contains('purchaser') ||
+              norm.contains('client');
+          if (!isBuyer) continue;
+
+          if (norm.contains('firstname') || norm.contains('first')) {
+            values[f.name] = buyer.firstName;
+          } else if (norm.contains('lastname') || norm.contains('last')) {
+            values[f.name] = buyer.lastName;
+          } else if (norm.contains('email')) {
+            values[f.name] = buyer.email ?? '';
+          } else if (norm.contains('phone')) {
+            values[f.name] = buyer.phone ?? '';
+          } else if (norm.contains('address')) {
+            values[f.name] = buyer.fullAddress ?? '';
+          } else if (norm.contains('name')) {
+            values[f.name] = buyer.fullName;
+          }
+        }
+      }
+    }
+  }
+
+  static bool _matchAny(String norm, List<String> keywords) =>
+      keywords.any(norm.contains);
+
+  // ── Live preview (on blur) ─────────────────────────────────────────────────
+
+  void _updatePreviewNow() {
+    final blank = _blankPdfBytes;
+    if (blank == null) return;
+    try {
+      final stamped = PdfStamper.stamp(blank, _values);
+      setState(() {
+        _previewPdfBytes = stamped;
+        _previewVersion++;
+      });
+    } catch (_) {
+      // Ignore stamp errors during preview; final generation will surface them.
+    }
+  }
+
+  // ── AI label fetch (background) ────────────────────────────────────────────
+
+  Future<void> _triggerLabelFetch(
+    FormTemplate template,
+    List<_AcroField> fields,
+  ) async {
+    if (fields.isEmpty) return;
+    try {
+      final fn = FirebaseFunctions.instance.httpsCallable('labelFormFields');
+      await fn.call({
+        'templateId': template.id,
+        'boardId': template.boardId,
+        'fieldNames': fields.map((f) => f.name).toList(),
+      });
+      // Labels are now stored in Firestore; they'll be used on the next open.
+    } catch (e) {
+      debugPrint('Failed to trigger label fetch: $e');
+      // Non-fatal — pretty-printed names are still shown.
     }
   }
 
@@ -184,84 +517,6 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     );
   }
 
-  Future<void> _autofill(
-    Map<String, dynamic> values,
-    FormTemplate template,
-    tx_model.Transaction? transaction,
-  ) async {
-    final agent = ref.read(authNotifierProvider);
-
-    _fillMatching(values, template, [
-      'broker name',
-      'agent name',
-    ], agent.userName);
-    _fillMatching(values, template, [
-      'broker email',
-      'agent email',
-    ], agent.userEmail);
-
-    // Pre-fill buyer info from the linked contact.
-    if (transaction?.buyerContactId != null &&
-        transaction!.buyerContactId!.isNotEmpty) {
-      final buyer = await fetchContact(transaction.buyerContactId!);
-      if (buyer != null) {
-        _fillMatching(values, template, [
-          'buyer name',
-          'purchaser name',
-          'client name',
-        ], buyer.fullName);
-        _fillMatching(values, template, [
-          'buyer first',
-          'purchaser first',
-          'client first',
-        ], buyer.firstName);
-        _fillMatching(values, template, [
-          'buyer last',
-          'purchaser last',
-          'client last',
-        ], buyer.lastName);
-        if (buyer.email != null) {
-          _fillMatching(values, template, [
-            'buyer email',
-            'purchaser email',
-            'client email',
-          ], buyer.email!);
-        }
-        if (buyer.phone != null) {
-          _fillMatching(values, template, [
-            'buyer phone',
-            'purchaser phone',
-            'client phone',
-          ], buyer.phone!);
-        }
-        if (buyer.fullAddress != null) {
-          _fillMatching(values, template, [
-            'buyer address',
-            'purchaser address',
-            'mailing address',
-          ], buyer.fullAddress!);
-        }
-      }
-    }
-  }
-
-  void _fillMatching(
-    Map<String, dynamic> values,
-    FormTemplate template,
-    List<String> keywords,
-    String value,
-  ) {
-    if (value.isEmpty) return;
-    for (final step in template.steps) {
-      for (final field in step.fields) {
-        final lower = field.id.toLowerCase();
-        if (keywords.any(lower.contains) && !values.containsKey(field.id)) {
-          values[field.id] = value;
-        }
-      }
-    }
-  }
-
   static bool _isTextField(FormFieldType type) => switch (type) {
     FormFieldType.text ||
     FormFieldType.email ||
@@ -277,6 +532,13 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
   void _onFieldChanged(String fieldId, value) {
     setState(() => _values[fieldId] = value);
     _scheduleSave();
+  }
+
+  void _onFieldBlur(String fieldId, value) {
+    // Update the value synchronously (in case onChanged hasn't fired yet for
+    // selection widgets), then stamp a fresh preview.
+    _values[fieldId] = value;
+    _updatePreviewNow();
   }
 
   void _scheduleSave() {
@@ -300,13 +562,38 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
 
   // ── Step navigation ────────────────────────────────────────────────────────
 
+  int _pageForStep(int step) {
+    if (_acroPages.isNotEmpty && step < _acroPages.length) {
+      return _acroPages[step];
+    }
+    final steps = _template?.steps;
+    if (steps == null || step >= steps.length) return step + 1;
+    final fields = steps[step].fields;
+    return fields.isNotEmpty ? (fields.first.page ?? step + 1) : step + 1;
+  }
+
+  void _jumpPdfToStep(int step) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pdfController.jumpToPage(_pageForStep(step));
+    });
+  }
+
+  int get _stepCount => _acroPages.isNotEmpty
+      ? _acroPages.length
+      : (_template?.steps.length ?? 1);
+
   void _next() {
-    final maxStep = (_template?.steps.length ?? 1) - 1;
-    if (_step < maxStep) setState(() => _step++);
+    if (_step < _stepCount - 1) {
+      setState(() => _step++);
+      _jumpPdfToStep(_step);
+    }
   }
 
   void _back() {
-    if (_step > 0) setState(() => _step--);
+    if (_step > 0) {
+      setState(() => _step--);
+      _jumpPdfToStep(_step);
+    }
   }
 
   // ── PDF generation ─────────────────────────────────────────────────────────
@@ -319,11 +606,13 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
 
     setState(() => _isGenerating = true);
     try {
-      // Download the original blank PDF.
-      final pdfBytes = await StorageService.downloadTemplate(
-        boardId: template.boardId,
-        templateId: template.id,
-      );
+      // Use cached blank PDF (already downloaded at init) or re-download.
+      final pdfBytes =
+          _blankPdfBytes ??
+          await StorageService.downloadTemplate(
+            boardId: template.boardId,
+            templateId: template.id,
+          );
       if (pdfBytes == null) throw Exception('Could not download template PDF.');
 
       // Stamp field values.
@@ -432,11 +721,8 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder: (ctx) => _SigningLinkSheet(
-        url: url,
-        token: token,
-        templateName: templateName,
-      ),
+      builder: (ctx) =>
+          _SigningLinkSheet(url: url, token: token, templateName: templateName),
     );
   }
 
@@ -462,84 +748,150 @@ class _FormFillerScreenState extends ConsumerState<FormFillerScreen> {
     }
 
     final template = _template!;
-    final steps = template.steps;
-    final currentStep = steps[_step];
-    final isLastStep = _step == steps.length - 1;
+    final useAcro = _acroPages.isNotEmpty;
+    final stepCount = _stepCount;
+    final isLastStep = _step == stepCount - 1;
 
-    return Scaffold(
-      backgroundColor: kBgPage,
-      appBar: AppBar(
-        backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () async {
-            _saveTimer?.cancel();
-            await _save();
-            if (context.mounted) context.pop();
-          },
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(template.name, style: Theme.of(context).textTheme.titleMedium),
-            Text(
-              '${_step + 1} of ${steps.length} — ${currentStep.title}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-        ),
-        actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ),
-            )
-          else
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Center(
-                child: Text(
-                  'Saved',
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            ),
-        ],
+    final currentPageNum = _pageForStep(_step);
+    final stepTitle = 'Page $currentPageNum';
+    final currentPageFields = useAcro
+        ? _acroFields.where((f) => f.page == currentPageNum).toList()
+        : <_AcroField>[];
+
+    final appBar = AppBar(
+      backgroundColor: Colors.white,
+      leading: IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: () async {
+          _saveTimer?.cancel();
+          await _save();
+          if (context.mounted) context.pop();
+        },
       ),
-      body: Column(
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _StepProgressBar(current: _step, total: steps.length),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: _FormStepView(
-                step: currentStep,
-                values: _values,
-                controllers: _controllers,
-                onChanged: _onFieldChanged,
-              ),
-            ),
-          ),
-          _BottomBar(
-            isFirst: _step == 0,
-            isLast: isLastStep,
-            isGenerating: _isGenerating,
-            isRequestingSigning: _isRequestingSigning,
-            onBack: _back,
-            onNext: _next,
-            onGenerate: _generatePdf,
-            onRequestSigning: widget.txId != 'new'
-                ? _requestSigningFromWizard
-                : null,
+          Text(template.name, style: Theme.of(context).textTheme.titleMedium),
+          Text(
+            '${_step + 1} of $stepCount — $stepTitle',
+            style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
       ),
+      actions: [
+        if (_isSaving)
+          const Padding(
+            padding: EdgeInsets.only(right: 16),
+            child: Center(
+              child: SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          )
+        else
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: Center(
+              child: Text(
+                'Saved',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ),
+          ),
+      ],
+    );
+
+    Widget stepBody;
+    if (useAcro) {
+      stepBody = _AcroStepView(
+        pageNum: currentPageNum,
+        fields: currentPageFields,
+        values: _values,
+        controllers: _controllers,
+        onChanged: _onFieldChanged,
+        onFocus: (_) {},
+        onBlur: _onFieldBlur,
+      );
+    } else {
+      // Fallback: no AcroForm fields — use template steps.
+      final currentStep = template.steps[_step];
+      stepBody = _FormStepView(
+        step: currentStep,
+        values: _values,
+        controllers: _controllers,
+        onChanged: _onFieldChanged,
+      );
+    }
+
+    final formPanel = Column(
+      children: [
+        _StepProgressBar(current: _step, total: stepCount),
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: stepBody,
+          ),
+        ),
+        _BottomBar(
+          isFirst: _step == 0,
+          isLast: isLastStep,
+          isGenerating: _isGenerating,
+          isRequestingSigning: _isRequestingSigning,
+          onBack: _back,
+          onNext: _next,
+          onGenerate: _generatePdf,
+          onRequestSigning: widget.txId != 'new'
+              ? _requestSigningFromWizard
+              : null,
+        ),
+      ],
+    );
+
+    final displayPdfBytes = _previewPdfBytes ?? _blankPdfBytes;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth > 800 && displayPdfBytes != null;
+
+        if (isWide) {
+          return Scaffold(
+            backgroundColor: kBgPage,
+            appBar: appBar,
+            body: Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: Container(
+                    color: const Color(0xFF334155),
+                    child: SfPdfViewer.memory(
+                      displayPdfBytes,
+                      key: ValueKey(_previewVersion),
+                      controller: _pdfController,
+                      pageLayoutMode: PdfPageLayoutMode.single,
+                      enableDoubleTapZooming: false,
+                      canShowScrollHead: false,
+                      canShowScrollStatus: false,
+                      canShowPageLoadingIndicator: false,
+                      pageSpacing: 0,
+                      interactionMode: PdfInteractionMode.pan,
+                    ),
+                  ),
+                ),
+                Container(width: 1, color: const Color(0xFFE2E8F0)),
+                SizedBox(width: 400, child: formPanel),
+              ],
+            ),
+          );
+        }
+
+        return Scaffold(
+          backgroundColor: kBgPage,
+          appBar: appBar,
+          body: formPanel,
+        );
+      },
     );
   }
 }
@@ -624,6 +976,139 @@ class _FormStepView extends StatelessWidget {
   }
 }
 
+class _AcroStepView extends StatelessWidget {
+  final int pageNum;
+  final List<_AcroField> fields;
+  final Map<String, dynamic> values;
+  final Map<String, TextEditingController> controllers;
+  // ignore: avoid_annotating_with_dynamic
+  final void Function(String name, dynamic value) onChanged;
+  final void Function(String name) onFocus;
+  // ignore: avoid_annotating_with_dynamic
+  final void Function(String name, dynamic value) onBlur;
+
+  const _AcroStepView({
+    required this.pageNum,
+    required this.fields,
+    required this.values,
+    required this.controllers,
+    required this.onChanged,
+    required this.onFocus,
+    required this.onBlur,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Page $pageNum',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 4),
+            Text(
+              '${fields.length} field${fields.length == 1 ? '' : 's'}',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const Divider(height: 24),
+            ...fields.map(
+              (f) => Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: _AcroFieldWidget(
+                  field: f,
+                  value: values[f.name],
+                  controller: controllers[f.name],
+                  onChanged: (v) => onChanged(f.name, v),
+                  onFocus: () => onFocus(f.name),
+                  onBlur: (v) => onBlur(f.name, v),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AcroFieldWidget extends StatelessWidget {
+  final _AcroField field;
+  final dynamic value;
+  final TextEditingController? controller;
+  final ValueChanged<dynamic> onChanged;
+  final VoidCallback onFocus;
+  // ignore: avoid_annotating_with_dynamic
+  final void Function(dynamic value) onBlur;
+
+  const _AcroFieldWidget({
+    required this.field,
+    required this.value,
+    required this.controller,
+    required this.onChanged,
+    required this.onFocus,
+    required this.onBlur,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget w = switch (field.type) {
+      FormFieldType.checkbox => _CheckboxField(
+        label: field.label,
+        value: value == true || value.toString() == 'true',
+        onChanged: (v) {
+          onChanged(v);
+          onBlur(v);
+        },
+      ),
+      FormFieldType.radio => _RadioField(
+        label: field.label,
+        options: field.options,
+        value: value?.toString(),
+        onChanged: (v) {
+          onChanged(v);
+          onBlur(v);
+        },
+      ),
+      FormFieldType.signature => _SignaturePad(
+        label: field.label,
+        onChanged: onChanged,
+      ),
+      FormFieldType.dropdown => _DropdownField(
+        label: field.label,
+        options: field.options,
+        value: value?.toString(),
+        onChanged: (v) {
+          onChanged(v);
+          onBlur(v);
+        },
+      ),
+      _ => _TextField(
+        label: field.label,
+        type: field.type,
+        controller: controller ?? TextEditingController(),
+        onChanged: onChanged,
+        onFocus: onFocus,
+        onBlur: () => onBlur(controller?.text ?? ''),
+      ),
+    };
+    // For non-text fields wrap in a tap detector to fire onFocus.
+    if (field.type == FormFieldType.checkbox ||
+        field.type == FormFieldType.radio ||
+        field.type == FormFieldType.dropdown) {
+      w = GestureDetector(
+        onTap: onFocus,
+        behavior: HitTestBehavior.translucent,
+        child: w,
+      );
+    }
+    return w;
+  }
+}
+
 class _FieldWidget extends StatelessWidget {
   final FormFieldDef field;
   final dynamic value;
@@ -676,12 +1161,16 @@ class _TextField extends StatelessWidget {
   final FormFieldType type;
   final TextEditingController controller;
   final ValueChanged<dynamic> onChanged;
+  final VoidCallback? onFocus;
+  final VoidCallback? onBlur;
 
   const _TextField({
     required this.label,
     required this.type,
     required this.controller,
     required this.onChanged,
+    this.onFocus,
+    this.onBlur,
   });
 
   @override
@@ -702,6 +1191,8 @@ class _TextField extends StatelessWidget {
           : TextCapitalization.words,
       maxLength: type == FormFieldType.initials ? 4 : null,
       onChanged: onChanged,
+      onTap: onFocus,
+      onEditingComplete: onBlur,
     );
   }
 }
@@ -906,9 +1397,9 @@ class _SignaturePadState extends State<_SignaturePad> {
                 onTap: _clear,
                 child: Text(
                   'Clear',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: kBlueAccent,
-                  ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: kBlueAccent),
                 ),
               ),
             ],
@@ -1119,7 +1610,8 @@ class _SigningLinkSheetState extends State<_SigningLinkSheet> {
       await fn.call({
         'token': widget.token,
         'clientEmail': email,
-        if (_nameCtrl.text.trim().isNotEmpty) 'clientName': _nameCtrl.text.trim(),
+        if (_nameCtrl.text.trim().isNotEmpty)
+          'clientName': _nameCtrl.text.trim(),
       });
       setState(() => _sent = true);
     } on FirebaseFunctionsException catch (e) {
@@ -1162,7 +1654,10 @@ class _SigningLinkSheetState extends State<_SigningLinkSheet> {
                   children: [
                     Text(
                       'Signing link created',
-                      style: TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 16,
+                      ),
                     ),
                     Text(
                       'Expires in 7 days',
@@ -1222,8 +1717,11 @@ class _SigningLinkSheetState extends State<_SigningLinkSheet> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.check_circle_outline,
-                      color: kSuccessGreen, size: 18),
+                  const Icon(
+                    Icons.check_circle_outline,
+                    color: kSuccessGreen,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Email sent to ${_emailCtrl.text.trim()}',
@@ -1323,9 +1821,9 @@ class _DoneScreen extends StatelessWidget {
     if (await canLaunchUrl(uri)) {
       await launchUrl(uri);
     } else if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No email app available.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('No email app available.')));
     }
   }
 
@@ -1365,10 +1863,9 @@ class _DoneScreen extends StatelessWidget {
               const SizedBox(height: 8),
               Text(
                 templateName,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodyMedium
-                    ?.copyWith(color: kTextSecondary),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
@@ -1412,10 +1909,7 @@ class _DoneScreen extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    TextButton(
-                      onPressed: onClose,
-                      child: const Text('Done'),
-                    ),
+                    TextButton(onPressed: onClose, child: const Text('Done')),
                   ],
                 ),
               ),

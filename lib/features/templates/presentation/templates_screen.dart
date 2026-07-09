@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -66,7 +67,6 @@ class _TemplatesBody extends ConsumerStatefulWidget {
 }
 
 class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
-  bool _seeding = false;
   String _query = '';
   String? _selectedCategory;
   final _searchCtrl = TextEditingController();
@@ -77,28 +77,17 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
     super.dispose();
   }
 
-  Future<void> _seedTemplates() async {
-    setState(() => _seeding = true);
-    try {
-      final count = await TemplateService.seedTestTemplates(widget.boardId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            count == 0
-                ? 'Templates already seeded.'
-                : 'Seeded $count test templates.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Seed failed: $e'), backgroundColor: Colors.red),
-      );
-    } finally {
-      if (mounted) setState(() => _seeding = false);
-    }
+  void _showUploadSheet(BuildContext context) {
+    showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => _UploadPdfSheet(boardId: widget.boardId),
+    );
   }
 
   List<FormTemplate> _filter(List<FormTemplate> templates) {
@@ -142,18 +131,11 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
                         style: Theme.of(context).textTheme.headlineSmall,
                       ),
                       const Spacer(),
-                      OutlinedButton.icon(
-                        onPressed: _seeding ? null : _seedTemplates,
-                        icon: _seeding
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : const Icon(Icons.science_outlined, size: 16),
-                        label: const Text('Seed Test Forms'),
+                      FilledButton.icon(
+                        onPressed: () => _showUploadSheet(context),
+                        icon: const Icon(Icons.upload_file, size: 16),
+                        label: const Text('Upload PDF'),
+                        style: FilledButton.styleFrom(minimumSize: const Size(0, 40)),
                       ),
                     ],
                   ),
@@ -193,10 +175,7 @@ class _TemplatesBodyState extends ConsumerState<_TemplatesBody> {
               error: (e, _) => Center(child: Text('Error: $e')),
               data: (templates) {
                 if (templates.isEmpty) {
-                  return _EmptyState(
-                    onSeed: _seedTemplates,
-                    seeding: _seeding,
-                  );
+                  return _EmptyState(boardId: widget.boardId);
                 }
 
                 // Build category list from full (unfiltered) templates.
@@ -310,9 +289,8 @@ class _CategoryBar extends StatelessWidget {
 // ── Empty state ───────────────────────────────────────────────────────────────
 
 class _EmptyState extends StatelessWidget {
-  final VoidCallback onSeed;
-  final bool seeding;
-  const _EmptyState({required this.onSeed, required this.seeding});
+  final String boardId;
+  const _EmptyState({required this.boardId});
 
   @override
   Widget build(BuildContext context) {
@@ -330,40 +308,30 @@ class _EmptyState extends StatelessWidget {
                 borderRadius: BorderRadius.circular(16),
                 border: Border.all(color: kBorderColor),
               ),
-              child: const Icon(
-                Icons.description_outlined,
-                color: kTextSecondary,
-                size: 28,
-              ),
+              child: const Icon(Icons.description_outlined, color: kTextSecondary, size: 28),
             ),
             const SizedBox(height: 16),
-            Text(
-              'No Templates Yet',
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
+            Text('No Templates Yet', style: Theme.of(context).textTheme.titleLarge),
             const SizedBox(height: 8),
             Text(
-              'Seed the four test forms to get started, or upload your own PDFs.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: kTextSecondary),
+              'Upload a PDF form to get started.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: kTextSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 24),
             FilledButton.icon(
-              onPressed: seeding ? null : onSeed,
-              icon: seeding
-                  ? const SizedBox(
-                      width: 14,
-                      height: 14,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.science_outlined, size: 18),
-              label: const Text('Seed Test Forms'),
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                useRootNavigator: true,
+                isScrollControlled: true,
+                backgroundColor: Colors.white,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+                ),
+                builder: (_) => _UploadPdfSheet(boardId: boardId),
+              ),
+              icon: const Icon(Icons.upload_file, size: 18),
+              label: const Text('Upload PDF'),
             ),
           ],
         ),
@@ -427,6 +395,10 @@ class _TemplateCard extends StatelessWidget {
                             ? kSuccessGreen
                             : kWarningAmber,
                       ),
+                      if (template.schemaReady && template.fieldLabels.isEmpty) ...[
+                        const SizedBox(width: 6),
+                        const _Chip('Labels pending', color: kWarningAmber, icon: Icons.auto_awesome_outlined),
+                      ],
                     ],
                   ),
                 ],
@@ -462,7 +434,8 @@ class _TemplateCard extends StatelessWidget {
 class _Chip extends StatelessWidget {
   final String label;
   final Color? color;
-  const _Chip(this.label, {this.color});
+  final IconData? icon;
+  const _Chip(this.label, {this.color, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -473,9 +446,221 @@ class _Chip extends StatelessWidget {
         color: c.withValues(alpha: 0.10),
         borderRadius: BorderRadius.circular(6),
       ),
-      child: Text(
-        label,
-        style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: 11, color: c),
+            const SizedBox(width: 3),
+          ],
+          Text(
+            label,
+            style: TextStyle(fontSize: 11, color: c, fontWeight: FontWeight.w600),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Upload PDF sheet ──────────────────────────────────────────────────────────
+
+class _UploadPdfSheet extends ConsumerStatefulWidget {
+  final String boardId;
+  const _UploadPdfSheet({required this.boardId});
+
+  @override
+  ConsumerState<_UploadPdfSheet> createState() => _UploadPdfSheetState();
+}
+
+class _UploadPdfSheetState extends ConsumerState<_UploadPdfSheet> {
+  final _formKey = GlobalKey<FormState>();
+  final _nameCtrl = TextEditingController();
+  final _categoryCtrl = TextEditingController();
+  final _descCtrl = TextEditingController();
+
+  String? _fileName;
+  Uint8List? _pdfBytes;
+  bool _uploading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _nameCtrl.dispose();
+    _categoryCtrl.dispose();
+    _descCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['pdf'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+    if (file.bytes == null) return;
+
+    setState(() {
+      _pdfBytes = file.bytes;
+      _fileName = file.name;
+      // Pre-fill name from filename if empty.
+      if (_nameCtrl.text.trim().isEmpty) {
+        _nameCtrl.text = file.name
+            .replaceAll('.pdf', '')
+            .replaceAll('_', ' ')
+            .replaceAll('-', ' ');
+      }
+      _error = null;
+    });
+  }
+
+  Future<void> _upload() async {
+    if (!_formKey.currentState!.validate()) return;
+    if (_pdfBytes == null) {
+      setState(() => _error = 'Please select a PDF file.');
+      return;
+    }
+
+    setState(() { _uploading = true; _error = null; });
+    try {
+      await TemplateService.uploadTemplate(
+        pdfBytes: _pdfBytes!,
+        name: _nameCtrl.text.trim(),
+        boardId: widget.boardId,
+        category: _categoryCtrl.text.trim().isEmpty ? null : _categoryCtrl.text.trim(),
+        description: _descCtrl.text.trim().isEmpty ? null : _descCtrl.text.trim(),
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Template uploaded successfully.')),
+      );
+    } catch (e) {
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottom = MediaQuery.of(context).viewInsets.bottom;
+    return SingleChildScrollView(
+      padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottom),
+      child: Form(
+        key: _formKey,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('Upload PDF Form', style: Theme.of(context).textTheme.headlineSmall),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+
+            // File picker
+            GestureDetector(
+              onTap: _uploading ? null : _pickFile,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: _pdfBytes != null ? kBlueAccent : kBorderColor,
+                    width: _pdfBytes != null ? 1.5 : 1,
+                  ),
+                  borderRadius: BorderRadius.circular(10),
+                  color: _pdfBytes != null
+                      ? kBlueAccent.withValues(alpha: 0.04)
+                      : kBgPage,
+                ),
+                child: Column(
+                  children: [
+                    Icon(
+                      _pdfBytes != null
+                          ? Icons.picture_as_pdf
+                          : Icons.upload_file_outlined,
+                      size: 32,
+                      color: _pdfBytes != null ? kBlueAccent : kTextSecondary,
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _fileName ?? 'Tap to select a PDF',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _pdfBytes != null ? kTextPrimary : kTextSecondary,
+                        fontWeight: _pdfBytes != null ? FontWeight.w500 : null,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (_pdfBytes != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${(_pdfBytes!.length / 1024).toStringAsFixed(0)} KB — tap to change',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: kTextSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            TextFormField(
+              controller: _nameCtrl,
+              decoration: const InputDecoration(labelText: 'Form Name'),
+              textCapitalization: TextCapitalization.words,
+              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _categoryCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Category (optional)',
+                hintText: 'e.g. Purchase, Disclosure, Lease',
+              ),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _descCtrl,
+              decoration: const InputDecoration(labelText: 'Description (optional)'),
+              maxLines: 2,
+            ),
+
+            if (_error != null) ...[
+              const SizedBox(height: 12),
+              Text(_error!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+            ],
+
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _uploading ? null : _upload,
+                icon: _uploading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                      )
+                    : const Icon(Icons.cloud_upload_outlined, size: 18),
+                label: Text(_uploading ? 'Uploading…' : 'Upload Template'),
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 48)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

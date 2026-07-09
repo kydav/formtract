@@ -134,6 +134,8 @@ class FormTemplate {
   final String pdfStoragePath; // original PDF in Firebase Storage
   final List<FormStep> steps; // AI-parsed schema
   final bool schemaReady; // false until AI parsing completes
+  // AI-generated labels keyed by AcroForm field name (populated by labelFormFields function).
+  final Map<String, String> fieldLabels;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -148,10 +150,12 @@ class FormTemplate {
     this.category,
     this.steps = const [],
     this.schemaReady = false,
+    this.fieldLabels = const {},
   });
 
   factory FormTemplate.fromFirestore(DocumentSnapshot doc) {
     final d = doc.data()! as Map<String, dynamic>;
+    final rawLabels = d['fieldLabels'] as Map<String, dynamic>?;
     return FormTemplate(
       id: doc.id,
       boardId: d['boardId'] as String,
@@ -163,6 +167,9 @@ class FormTemplate {
           .map((s) => FormStep.fromMap(s as Map<String, dynamic>))
           .toList(),
       schemaReady: d['schemaReady'] as bool? ?? false,
+      fieldLabels: rawLabels != null
+          ? rawLabels.map((k, v) => MapEntry(k, v as String))
+          : const {},
       createdAt: (d['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (d['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -176,6 +183,7 @@ class FormTemplate {
     'pdfStoragePath': pdfStoragePath,
     'steps': steps.map((s) => s.toMap()).toList(),
     'schemaReady': schemaReady,
+    if (fieldLabels.isNotEmpty) 'fieldLabels': fieldLabels,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': FieldValue.serverTimestamp(),
   };

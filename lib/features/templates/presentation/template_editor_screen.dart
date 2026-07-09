@@ -85,19 +85,34 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
       );
 
       List<Size> pageSizes = [];
+      List<FormFieldDef> acroFields = [];
       if (bytes != null) {
         final doc = sf_pdf.PdfDocument(inputBytes: bytes);
         pageSizes = List.generate(
           doc.pages.count,
           (i) => Size(doc.pages[i].size.width, doc.pages[i].size.height),
         );
+        // Extract exact AcroForm field positions — much more accurate than AI estimates.
+        acroFields = _extractAcroFields(doc, pageSizes);
         doc.dispose();
+      }
+
+      // Merge: if Firestore fields lack positions but AcroForm fields exist,
+      // match by name and apply exact PDF bounds. If no Firestore fields yet,
+      // use AcroForm fields directly.
+      List<FormFieldDef> mergedFields;
+      if (fields.isEmpty && acroFields.isNotEmpty) {
+        mergedFields = acroFields;
+      } else if (fields.isNotEmpty && acroFields.isNotEmpty) {
+        mergedFields = _applyAcroPositions(fields, acroFields);
+      } else {
+        mergedFields = List.from(fields);
       }
 
       if (!mounted) return;
       setState(() {
         _template = snap;
-        _fields = List.from(fields);
+        _fields = mergedFields;
         _pdfBytes = bytes;
         _pageSizes = pageSizes;
         _loading = false;
@@ -111,6 +126,59 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
     }
   }
 
+  // ── AcroForm extraction ───────────────────────────────────────────────────
+
+  /// Extracts field positions directly from PDF AcroForm data.
+  /// Syncfusion returns bounds in PDF native coordinates: y=0 at page BOTTOM,
+  /// increasing upward. Convert to screen coords with (ph - b.top) / ph.
+  List<FormFieldDef> _extractAcroFields(
+    sf_pdf.PdfDocument doc,
+    List<Size> pageSizes,
+  ) {
+    final result = <FormFieldDef>[];
+    try {
+      final form = doc.form;
+      for (int i = 0; i < form.fields.count; i++) {
+        final field = form.fields[i];
+        final page = field.page;
+        if (page == null) continue;
+        final pageIndex = doc.pages.indexOf(page);
+        if (pageIndex < 0 || pageIndex >= pageSizes.length) continue;
+        final pw = pageSizes[pageIndex].width;
+        final ph = pageSizes[pageIndex].height;
+        final b = field.bounds;
+        result.add(
+          FormFieldDef(
+            id:
+                (field.name?.isNotEmpty == true ? field.name : 'field$i') ??
+                'field$i',
+            label:
+                (field.name?.isNotEmpty == true
+                    ? field.name
+                    : 'Field ${i + 1}') ??
+                'Field ${i + 1}',
+            type: _pdfFieldType(field),
+            page: pageIndex + 1,
+            x: (b.left / pw * 100).clamp(0, 100),
+            // PDF native: y=0 at bottom. Convert to screen y (0=top).
+            y: ((ph - b.top) / ph * 100).clamp(0, 100),
+            width: (b.width / pw * 100).clamp(1, 100),
+            height: (b.height / ph * 100).clamp(1, 100),
+          ),
+        );
+      }
+    } catch (_) {}
+    return result;
+  }
+
+  FormFieldType _pdfFieldType(sf_pdf.PdfField field) {
+    if (field is sf_pdf.PdfCheckBoxField) return FormFieldType.checkbox;
+    if (field is sf_pdf.PdfRadioButtonListField) return FormFieldType.radio;
+    if (field is sf_pdf.PdfComboBoxField) return FormFieldType.dropdown;
+    if (field is sf_pdf.PdfSignatureField) return FormFieldType.signature;
+    return FormFieldType.text;
+  }
+
   // ── AI detection ──────────────────────────────────────────────────────────
 
   Future<void> _detectFields() async {
@@ -122,9 +190,23 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         templateId: template.id,
         boardId: template.boardId,
       );
-      final fields = rawFields
+      var fields = rawFields
           .map((m) => FormFieldDef.fromMap(m.cast<String, dynamic>()))
           .toList();
+
+      // Override AI positions with exact AcroForm positions where available.
+      List<FormFieldDef> acroFields = [];
+      if (_pdfBytes != null) {
+        try {
+          final doc = sf_pdf.PdfDocument(inputBytes: _pdfBytes!);
+          acroFields = _extractAcroFields(doc, _pageSizes);
+          doc.dispose();
+          if (acroFields.isNotEmpty) {
+            fields = _applyAcroPositions(fields, acroFields);
+          }
+        } catch (_) {}
+      }
+
       setState(() {
         _fields = fields;
         _selectedIndex = 0;
@@ -198,16 +280,23 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
   }
 
   void _addField() {
-    final page = _viewingPage;
+    // Generate a unique ID that won't collide with existing fields.
+    final existing = _fields.map((f) => f.id).toSet();
+    var n = _fields.length + 1;
+    var id = 'field$n';
+    while (existing.contains(id)) {
+      n++;
+      id = 'field$n';
+    }
     final newField = FormFieldDef(
-      id: 'field${_fields.length + 1}',
+      id: id,
       label: 'New Field',
       type: FormFieldType.text,
-      page: page,
-      x: 10,
-      y: 10,
-      width: 30,
-      height: 5,
+      page: _viewingPage,
+      x: 32,   // center-ish horizontally
+      y: 45,   // center of page
+      width: 35,
+      height: 4,
     );
     setState(() {
       _fields.add(newField);
@@ -216,14 +305,14 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
   }
 
   void _deleteField(int index) {
-    if (_fields.length <= 1) return;
     setState(() {
       _fields.removeAt(index);
-      _selectedIndex =
-          (_selectedIndex >= _fields.length
-                  ? _fields.length - 1
-                  : _selectedIndex)
-              .clamp(0, _fields.length - 1);
+      if (_fields.isEmpty) {
+        _selectedIndex = 0;
+      } else {
+        _selectedIndex = _selectedIndex
+            .clamp(0, _fields.length - 1);
+      }
     });
   }
 
@@ -266,56 +355,30 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         style: const TextStyle(fontSize: 15),
       ),
       actions: [
-        if (_fields.isNotEmpty)
-          TextButton.icon(
-            onPressed: _detecting ? null : _detectFields,
-            icon: _detecting
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white70,
-                    ),
-                  )
-                : const Icon(
-                    Icons.auto_awesome,
-                    size: 16,
+        // AI detect — secondary, icon-only to save space.
+        IconButton(
+          onPressed: _detecting ? null : _detectFields,
+          tooltip: _fields.isEmpty ? 'Detect fields with AI' : 'Re-detect fields with AI',
+          icon: _detecting
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
                     color: Colors.white70,
                   ),
-            label: Text(
-              'Re-detect',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 13,
-              ),
-            ),
+                )
+              : const Icon(Icons.auto_awesome, size: 18, color: Colors.white70),
+        ),
+        // Add Field — primary manual action.
+        TextButton.icon(
+          onPressed: _addField,
+          icon: const Icon(Icons.add, size: 16, color: Colors.white),
+          label: const Text(
+            'Add Field',
+            style: TextStyle(color: Colors.white, fontSize: 13),
           ),
-        if (_fields.isEmpty)
-          TextButton.icon(
-            onPressed: _detecting ? null : _detectFields,
-            icon: _detecting
-                ? const SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: Colors.white70,
-                    ),
-                  )
-                : const Icon(
-                    Icons.auto_awesome,
-                    size: 16,
-                    color: Colors.white70,
-                  ),
-            label: Text(
-              'Detect Fields',
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 13,
-              ),
-            ),
-          ),
+        ),
         const SizedBox(width: 8),
         FilledButton(
           onPressed: (_saving || _fields.isEmpty) ? null : _save,
@@ -344,7 +407,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
     return Row(
       children: [
         Expanded(child: _buildPdfPane()),
-        Container(
+        SizedBox(
           width: 360,
           // decoration: const BoxDecoration(
           //   color: Colors.white,
@@ -367,6 +430,70 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         Expanded(child: _buildFieldPanel()),
       ],
     );
+  }
+
+  // ── AcroForm position merge ───────────────────────────────────────────────
+  //
+  // Normalizes names by stripping all non-alphanumeric characters so that
+  // AcroForm "Other Compensation" matches AI id "otherCompensation".
+  // Falls back to reading-order sort match when page field counts agree.
+  static String _normName(String s) =>
+      s.toLowerCase().replaceAll(RegExp('[^a-z0-9]'), '');
+
+  List<FormFieldDef> _applyAcroPositions(
+    List<FormFieldDef> aiFields,
+    List<FormFieldDef> acroFields,
+  ) {
+    List<FormFieldDef> sortByYX(List<FormFieldDef> list) =>
+        [...list]..sort((a, b) {
+          final yComp = (a.y ?? 0.0).compareTo(b.y ?? 0.0);
+          return yComp != 0 ? yComp : (a.x ?? 0.0).compareTo(b.x ?? 0.0);
+        });
+
+    // Build a normalized-name lookup across ALL AcroForm fields (not per-page),
+    // because AI page numbers may differ from AcroForm page numbers.
+    final acroByNorm = <String, FormFieldDef>{};
+    for (final f in acroFields) {
+      acroByNorm[_normName(f.id)] = f;
+    }
+
+    final aiByPage = <int, List<FormFieldDef>>{};
+    final acroByPage = <int, List<FormFieldDef>>{};
+    for (final f in aiFields) {
+      aiByPage.putIfAbsent(f.page ?? 1, () => []).add(f);
+    }
+    for (final f in acroFields) {
+      acroByPage.putIfAbsent(f.page ?? 1, () => []).add(f);
+    }
+
+    final replacements = <String, FormFieldDef>{};
+
+    // First pass: normalized name match across entire AcroForm (handles
+    // mismatched page counts and descriptive AcroForm field names).
+    for (final f in aiFields) {
+      final match = acroByNorm[_normName(f.id)] ?? acroByNorm[_normName(f.label)];
+      if (match != null) replacements[f.id] = match;
+    }
+
+    // Second pass: per-page reading-order sort for any remaining unmatched fields
+    // (handles forms where per-page counts agree but names are generic).
+    for (final page in aiByPage.keys) {
+      final ai = sortByYX(aiByPage[page]!).where((f) => !replacements.containsKey(f.id)).toList();
+      final acro = acroByPage[page];
+      if (acro == null || ai.isEmpty) continue;
+      final sortedAcro = sortByYX(acro);
+      if (ai.length == sortedAcro.length) {
+        for (int i = 0; i < ai.length; i++) {
+          replacements[ai[i].id] = sortedAcro[i];
+        }
+      }
+    }
+
+    return aiFields.map((f) {
+      final match = replacements[f.id];
+      if (match == null) return f;
+      return f.copyWith(x: match.x, y: match.y, width: match.width, height: match.height);
+    }).toList();
   }
 
   // ── PDF pane ──────────────────────────────────────────────────────────────
@@ -397,15 +524,26 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final viewerWidth = constraints.maxWidth;
+        final viewerHeight = constraints.maxHeight;
 
         // Page aspect ratio drives overlay coordinate scaling.
         Size pageSize = const Size(612, 792);
         if (_pageSizes.isNotEmpty && _viewingPage <= _pageSizes.length) {
           pageSize = _pageSizes[_viewingPage - 1];
         }
-        // Height the PDF page occupies when scaled to fill viewerWidth.
-        final renderedPageHeight =
-            viewerWidth / pageSize.width * pageSize.height;
+
+        // SfPdfViewer fits the page inside the available viewport (both axes),
+        // keeping aspect ratio and centering. Calculate the actual rendered page
+        // bounds so overlays align precisely.
+        final scaleX = viewerWidth / pageSize.width;
+        final scaleY = viewerHeight > 0
+            ? viewerHeight / pageSize.height
+            : scaleX;
+        final scale = scaleX < scaleY ? scaleX : scaleY;
+        final renderedPageWidth = pageSize.width * scale;
+        final renderedPageHeight = pageSize.height * scale;
+        final pageLeft = (viewerWidth - renderedPageWidth) / 2;
+        final pageTop = (viewerHeight - renderedPageHeight) / 2;
 
         // Only overlay fields that have AI-detected positions.
         // AcroForm-only fields have null x/y and must be navigated via the panel.
@@ -434,79 +572,177 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
               },
             ),
 
-            // Field overlays — percentage coords scaled to rendered page size.
+            // Field overlays — draggable + resizable percentage-coord boxes.
             ...currentPageFields.map((field) {
               final fieldIndex = _fields.indexOf(field);
               final isSelected = fieldIndex == _selectedIndex;
               final color = isSelected ? kBlueAccent : Colors.orange;
+
+              final left = pageLeft + (field.x ?? 0) / 100 * renderedPageWidth;
+              final top = pageTop + (field.y ?? 0) / 100 * renderedPageHeight;
+              final width =
+                  ((field.width ?? 10) / 100 * renderedPageWidth).clamp(
+                    10.0,
+                    renderedPageWidth,
+                  );
+              final height = ((field.height ?? 4) / 100 * renderedPageHeight)
+                  .clamp(8.0, renderedPageHeight);
+
               return Positioned(
-                left: (field.x ?? 0) / 100 * viewerWidth,
-                top: (field.y ?? 0) / 100 * renderedPageHeight,
-                width: ((field.width ?? 10) / 100 * viewerWidth).clamp(
-                  20.0,
-                  viewerWidth,
-                ),
-                height: ((field.height ?? 4) / 100 * renderedPageHeight).clamp(
-                  14.0,
-                  renderedPageHeight,
-                ),
+                left: left,
+                top: top,
+                width: width,
+                height: height,
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
                   onTap: () => _selectField(fieldIndex),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: color,
-                        width: isSelected ? 2 : 1,
-                      ),
-                      color: color.withValues(alpha: isSelected ? 0.18 : 0.08),
-                    ),
-                    child: Align(
-                      alignment: Alignment.topLeft,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 3,
-                          vertical: 1,
+                  onPanUpdate: (d) {
+                    // Drag moves the field
+                    final f = _fields[fieldIndex];
+                    final newX =
+                        ((f.x ?? 0) + d.delta.dx / renderedPageWidth * 100)
+                            .clamp(0.0, 100.0);
+                    final newY =
+                        ((f.y ?? 0) + d.delta.dy / renderedPageHeight * 100)
+                            .clamp(0.0, 100.0);
+                    setState(
+                      () => _fields[fieldIndex] = f.copyWith(x: newX, y: newY),
+                    );
+                    if (fieldIndex != _selectedIndex) {
+                      setState(() => _selectedIndex = fieldIndex);
+                    }
+                  },
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      // Field box
+                      Container(
+                        width: double.infinity,
+                        height: double.infinity,
+                        decoration: BoxDecoration(
+                          border: Border.all(
+                            color: color,
+                            width: isSelected ? 2 : 1,
+                          ),
+                          color: color.withValues(
+                            alpha: isSelected ? 0.18 : 0.08,
+                          ),
                         ),
-                        color: color,
-                        child: Text(
-                          '${fieldIndex + 1}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 8,
-                            fontWeight: FontWeight.bold,
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 3,
+                              vertical: 1,
+                            ),
+                            color: color,
+                            child: Text(
+                              '${fieldIndex + 1}',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 8,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      // SE resize handle (only when selected)
+                      if (isSelected)
+                        Positioned(
+                          right: -6,
+                          bottom: -6,
+                          child: GestureDetector(
+                            behavior: HitTestBehavior.opaque,
+                            onPanUpdate: (d) {
+                              final f = _fields[fieldIndex];
+                              final newW =
+                                  ((f.width ?? 10) +
+                                          d.delta.dx / renderedPageWidth * 100)
+                                      .clamp(2.0, 100.0);
+                              final newH =
+                                  ((f.height ?? 4) +
+                                          d.delta.dy / renderedPageHeight * 100)
+                                      .clamp(1.0, 50.0);
+                              setState(
+                                () => _fields[fieldIndex] = f.copyWith(
+                                  width: newW,
+                                  height: newH,
+                                ),
+                              );
+                            },
+                            child: Container(
+                              width: 14,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                color: kBlueAccent,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                              child: const Icon(
+                                Icons.open_in_full,
+                                size: 9,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               );
             }),
 
-            // Banner when no fields have AI-detected positions yet.
-            if (!hasAnyPositions)
+            // Page indicator
+            if (_pageSizes.length > 1)
+              Positioned(
+                top: 8,
+                right: 8,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    'Page $_viewingPage of ${_pageSizes.length}',
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
+                  ),
+                ),
+              ),
+
+            // Banner when no fields have positions yet.
+            if (!hasAnyPositions && _fields.isNotEmpty)
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
                 child: Container(
                   color: kWarningAmber.withValues(alpha: 0.92),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline, size: 16, color: Colors.white),
+                      const Icon(
+                        Icons.info_outline,
+                        size: 16,
+                        color: Colors.white,
+                      ),
                       const SizedBox(width: 8),
                       const Expanded(
                         child: Text(
-                          'No field positions yet — tap "Detect Fields" in the toolbar to map fields to the PDF.',
+                          'Fields have no positions — use "Add Field" to place them on the PDF.',
                           style: TextStyle(color: Colors.white, fontSize: 12),
                         ),
                       ),
                       TextButton(
-                        onPressed: _detecting ? null : _detectFields,
+                        onPressed: _addField,
                         child: const Text(
-                          'Detect Now',
+                          'Add Field',
                           style: TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,
@@ -534,7 +770,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.auto_awesome, size: 40, color: kTextSecondary),
+              const Icon(Icons.add_box_outlined, size: 40, color: kTextSecondary),
               const SizedBox(height: 12),
               const Text(
                 'No fields yet',
@@ -542,15 +778,22 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Tap "Detect Fields" to extract fields from the PDF automatically.',
+                'Add fields manually and drag them into position on the PDF.',
                 style: TextStyle(color: kTextSecondary, fontSize: 13),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
-              OutlinedButton.icon(
+              FilledButton.icon(
                 onPressed: _addField,
                 icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Field Manually'),
+                label: const Text('Add Field'),
+                style: FilledButton.styleFrom(backgroundColor: kBlueAccent),
+              ),
+              const SizedBox(height: 8),
+              TextButton.icon(
+                onPressed: _detecting ? null : _detectFields,
+                icon: const Icon(Icons.auto_awesome, size: 14),
+                label: const Text('Auto-detect with AI', style: TextStyle(fontSize: 12)),
               ),
             ],
           ),
@@ -626,7 +869,7 @@ class _TemplateEditorScreenState extends ConsumerState<TemplateEditorScreen> {
         ),
 
         // Field list mini-nav
-        Container(
+        SizedBox(
           height: 160,
           // decoration: const BoxDecoration(
           //   border: Border(top: BorderSide(color: kBorderColor)),

@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.detectFormFields = exports.sendSigningEmail = void 0;
+exports.labelFormFields = exports.detectFormFields = exports.sendSigningEmail = void 0;
 const admin = require("firebase-admin");
 const functions = require("firebase-functions");
 const sgMail = require("@sendgrid/mail");
@@ -82,7 +82,9 @@ exports.sendSigningEmail = functions.https.onCall(async (data, context) => {
     await doc.ref.update({ clientEmail, emailSentAt: admin.firestore.FieldValue.serverTimestamp() });
     return { success: true };
 });
-const FIELD_DETECTION_PROMPT = `You are analyzing a real estate form PDF to extract all fillable entry fields.
+const FIELD_DETECTION_PROMPT = `IMPORTANT: Your response must be ONLY a raw JSON array — no markdown, no code fences, no explanation text before or after. Start your response with [ and end with ].
+
+You are analyzing a real estate form PDF to extract all fillable entry fields.
 
 For each field, return a JSON object with these exact properties:
 - "id": camelCase identifier derived from the label (e.g. "buyerFirstName", "purchasePrice", "agentSignature")
@@ -102,7 +104,7 @@ For each field, return a JSON object with these exact properties:
 
 Return ONLY a valid JSON array. No explanation, no markdown fences, no extra text.`;
 exports.detectFormFields = functions
-    .runWith({ timeoutSeconds: 120, memory: '512MB' })
+    .runWith({ timeoutSeconds: 120, memory: '512MB', secrets: ['ANTHROPIC_API_KEY'] })
     .https.onCall(async (data, context) => {
     var _a, _b, _c;
     if (!context.auth) {
@@ -113,19 +115,22 @@ exports.detectFormFields = functions
         throw new functions.https.HttpsError('invalid-argument', 'templateId and boardId are required.');
     }
     // Download the PDF from Firebase Storage.
+    functions.logger.log('detectFormFields: downloading PDF', { templateId, boardId });
     const bucket = admin.storage().bucket();
     const file = bucket.file(`templates/${boardId}/${templateId}.pdf`);
     const [pdfBytes] = await file.download();
     const base64Pdf = pdfBytes.toString('base64');
+    functions.logger.log('detectFormFields: PDF downloaded', { bytes: pdfBytes.length });
     // Call Claude via Anthropic API.
     const anthropicKey = (_a = process.env['ANTHROPIC_API_KEY']) !== null && _a !== void 0 ? _a : '';
     if (!anthropicKey) {
         throw new functions.https.HttpsError('internal', 'ANTHROPIC_API_KEY not configured. Run: firebase functions:secrets:set ANTHROPIC_API_KEY');
     }
+    functions.logger.log('detectFormFields: calling Claude');
     const anthropic = new sdk_1.default({ apiKey: anthropicKey });
     const message = await anthropic.messages.create({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
+        max_tokens: 8192,
         messages: [{
                 role: 'user',
                 content: [
@@ -142,8 +147,22 @@ exports.detectFormFields = functions
             }],
     });
     const rawText = ((_b = message.content[0]) === null || _b === void 0 ? void 0 : _b.type) === 'text' ? message.content[0].text : '[]';
-    // Strip any accidental markdown fences
-    const jsonText = rawText.replace(/^```(?:json)?\n?/m, '').replace(/\n?```$/m, '').trim();
+    functions.logger.log('detectFormFields: Claude responded', {
+        chars: rawText.length,
+        preview: rawText.slice(0, 200),
+        stopReason: message.stop_reason,
+    });
+    // Strip any markdown code fence (handles ``` or ` , json/JSON, extra whitespace).
+    let jsonText = rawText
+        .replace(/^`{1,3}(?:json)?\s*\n?/i, '')
+        .replace(/\n?`{1,3}\s*$/i, '')
+        .trim();
+    // Find the outermost JSON array bounds (handles preamble text and truncation).
+    const jsonStart = jsonText.indexOf('[');
+    const jsonEnd = jsonText.lastIndexOf(']');
+    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+        jsonText = jsonText.slice(jsonStart, jsonEnd + 1);
+    }
     let fields;
     try {
         fields = JSON.parse(jsonText);
@@ -151,6 +170,7 @@ exports.detectFormFields = functions
     catch (_d) {
         throw new functions.https.HttpsError('internal', `AI returned invalid JSON: ${rawText.slice(0, 200)}`);
     }
+    functions.logger.log('detectFormFields: parsed fields', { count: fields.length });
     // Group fields into steps by page, then save the full template schema.
     const byPage = new Map();
     for (const f of fields) {
@@ -180,11 +200,76 @@ exports.detectFormFields = functions
             });
         }),
     }));
+    functions.logger.log('detectFormFields: writing to Firestore', { templateId });
     await admin.firestore().collection('form_templates').doc(templateId).update({
         steps,
         schemaReady: true,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+    functions.logger.log('detectFormFields: done');
     return { fields };
+});
+// ── AI field labeling ──────────────────────────────────────────────────────────
+exports.labelFormFields = functions
+    .runWith({ timeoutSeconds: 120, memory: '512MB', secrets: ['ANTHROPIC_API_KEY'] })
+    .https.onCall(async (data, context) => {
+    var _a, _b;
+    if (!context.auth) {
+        throw new functions.https.HttpsError('unauthenticated', 'Must be signed in.');
+    }
+    const { templateId, boardId, fieldNames } = data;
+    if (!templateId || !boardId || !Array.isArray(fieldNames) || fieldNames.length === 0) {
+        throw new functions.https.HttpsError('invalid-argument', 'templateId, boardId, and fieldNames are required.');
+    }
+    functions.logger.log('labelFormFields: downloading PDF', { templateId, fieldCount: fieldNames.length });
+    const bucket = admin.storage().bucket();
+    const file = bucket.file(`templates/${boardId}/${templateId}.pdf`);
+    const [pdfBytes] = await file.download();
+    const base64Pdf = pdfBytes.toString('base64');
+    const anthropicKey = (_a = process.env['ANTHROPIC_API_KEY']) !== null && _a !== void 0 ? _a : '';
+    if (!anthropicKey) {
+        throw new functions.https.HttpsError('internal', 'ANTHROPIC_API_KEY not configured.');
+    }
+    const fieldList = fieldNames.map((n, i) => `${i + 1}. "${n}"`).join('\n');
+    const prompt = `You are reading a fillable real estate PDF form. The form has AcroForm fields with these internal names:\n\n${fieldList}\n\nFor each field name, look at the text printed on the form near or before that field and return a concise, human-readable label describing what the user should fill in (e.g. "Buyer Name", "Purchase Price", "Closing Date", "Inspection Deadline").\n\nRules:\n- If the field is in a dates/deadlines table, include the deadline name (e.g. "Record Title Deadline", "Closing Date")\n- For checkbox fields, describe what checking the box means (e.g. "Joint Tenants", "Conventional Loan")\n- Keep labels short — 1-5 words\n- If you cannot determine the label, return the field name as-is\n\nRespond with ONLY a raw JSON object mapping each field name to its label. No markdown, no explanation. Example: {"fieldName": "Human Label"}`;
+    const anthropic = new sdk_1.default({ apiKey: anthropicKey });
+    const message = await anthropic.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'document',
+                        source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+                    },
+                    { type: 'text', text: prompt },
+                ],
+            }],
+    });
+    const rawText = ((_b = message.content[0]) === null || _b === void 0 ? void 0 : _b.type) === 'text' ? message.content[0].text : '{}';
+    functions.logger.log('labelFormFields: Claude responded', { chars: rawText.length, stopReason: message.stop_reason });
+    let jsonText = rawText
+        .replace(/^`{1,3}(?:json)?\s*\n?/i, '')
+        .replace(/\n?`{1,3}\s*$/i, '')
+        .trim();
+    const jsonStart = jsonText.indexOf('{');
+    const jsonEnd = jsonText.lastIndexOf('}');
+    if (jsonStart !== -1 && jsonEnd > jsonStart) {
+        jsonText = jsonText.slice(jsonStart, jsonEnd + 1);
+    }
+    let labels;
+    try {
+        labels = JSON.parse(jsonText);
+    }
+    catch (_c) {
+        throw new functions.https.HttpsError('internal', `AI returned invalid JSON: ${rawText.slice(0, 200)}`);
+    }
+    functions.logger.log('labelFormFields: saving labels', { count: Object.keys(labels).length });
+    await admin.firestore().collection('form_templates').doc(templateId).update({
+        fieldLabels: labels,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+    return { labels };
 });
 //# sourceMappingURL=index.js.map

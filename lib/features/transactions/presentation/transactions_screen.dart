@@ -234,7 +234,12 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
   final _addressCtrl = TextEditingController();
   final _cityCtrl = TextEditingController();
   final _stateCtrl = TextEditingController();
+  final _zipCtrl = TextEditingController();
+  final _countyCtrl = TextEditingController();
+  final _sellerCtrl = TextEditingController();
+  final _priceCtrl = TextEditingController();
   Contact? _buyer;
+  DateTime? _closingDate;
   bool _saving = false;
 
   @override
@@ -242,7 +247,21 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
     _addressCtrl.dispose();
     _cityCtrl.dispose();
     _stateCtrl.dispose();
+    _zipCtrl.dispose();
+    _countyCtrl.dispose();
+    _sellerCtrl.dispose();
+    _priceCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickClosingDate(BuildContext context) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 2)),
+    );
+    if (picked != null) setState(() => _closingDate = picked);
   }
 
   Future<void> _save(BuildContext context) async {
@@ -253,18 +272,20 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
       final agent = ref.read(agentProfileProvider).value;
       final uid = auth.currentUser!.uid;
       final now = DateTime.now();
+      final price = double.tryParse(_priceCtrl.text.replaceAll(',', '').trim());
       final txId = await createTransaction(
         Transaction(
           id: '',
           agentId: uid,
           boardId: agent?.boardId ?? uid,
           propertyAddress: _addressCtrl.text.trim(),
-          propertyCity: _cityCtrl.text.trim().isEmpty
-              ? null
-              : _cityCtrl.text.trim(),
-          propertyState: _stateCtrl.text.trim().isEmpty
-              ? null
-              : _stateCtrl.text.trim(),
+          propertyCity: _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
+          propertyState: _stateCtrl.text.trim().isEmpty ? null : _stateCtrl.text.trim(),
+          propertyZip: _zipCtrl.text.trim().isEmpty ? null : _zipCtrl.text.trim(),
+          propertyCounty: _countyCtrl.text.trim().isEmpty ? null : _countyCtrl.text.trim(),
+          sellerName: _sellerCtrl.text.trim().isEmpty ? null : _sellerCtrl.text.trim(),
+          purchasePrice: price,
+          closingDate: _closingDate,
           buyerContactId: _buyer?.id,
           createdAt: now,
           updatedAt: now,
@@ -286,9 +307,9 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
   Future<void> _pickBuyer(BuildContext context) async {
     final contacts = ref.read(contactsProvider).value ?? [];
     if (contacts.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Add contacts first.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Add contacts first.')),
+      );
       return;
     }
     final picked = await showDialog<Contact>(
@@ -301,7 +322,11 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
   @override
   Widget build(BuildContext context) {
     final bottom = MediaQuery.of(context).viewInsets.bottom;
-    return Padding(
+    final closingLabel = _closingDate != null
+        ? '${_closingDate!.month}/${_closingDate!.day}/${_closingDate!.year}'
+        : 'Closing Date (optional)';
+
+    return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(24, 24, 24, 24 + bottom),
       child: Form(
         key: _formKey,
@@ -309,19 +334,19 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'New Transaction',
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
+            Text('New Transaction', style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 20),
+
+            // ── Property ──
+            Text('Property', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
             TextFormField(
               controller: _addressCtrl,
-              decoration: const InputDecoration(labelText: 'Property Address'),
+              decoration: const InputDecoration(labelText: 'Street Address'),
               textCapitalization: TextCapitalization.words,
-              validator: (v) =>
-                  v == null || v.trim().isEmpty ? 'Required' : null,
+              validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Row(
               children: [
                 Expanded(
@@ -332,8 +357,9 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
                     textCapitalization: TextCapitalization.words,
                   ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 60,
                   child: TextFormField(
                     controller: _stateCtrl,
                     decoration: const InputDecoration(labelText: 'State'),
@@ -341,17 +367,43 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
                     maxLength: 2,
                   ),
                 ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 80,
+                  child: TextFormField(
+                    controller: _zipCtrl,
+                    decoration: const InputDecoration(labelText: 'ZIP'),
+                    keyboardType: TextInputType.number,
+                    maxLength: 5,
+                  ),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
+            TextFormField(
+              controller: _countyCtrl,
+              decoration: const InputDecoration(labelText: 'County (optional)'),
+              textCapitalization: TextCapitalization.words,
+            ),
+            const SizedBox(height: 20),
+
+            // ── Deal terms ──
+            Text('Deal Terms', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
+            TextFormField(
+              controller: _priceCtrl,
+              decoration: const InputDecoration(
+                labelText: 'Purchase Price (optional)',
+                prefixText: '\$',
+              ),
+              keyboardType: TextInputType.number,
+            ),
+            const SizedBox(height: 10),
             GestureDetector(
-              onTap: () => _pickBuyer(context),
+              onTap: () => _pickClosingDate(context),
               child: Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 14,
-                ),
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
                 decoration: BoxDecoration(
                   border: Border.all(color: kBorderColor),
                   borderRadius: BorderRadius.circular(8),
@@ -359,11 +411,47 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
                 ),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.person_outline,
-                      color: _buyer != null ? kTextPrimary : kTextSecondary,
-                      size: 18,
+                    Icon(Icons.calendar_today_outlined,
+                        color: _closingDate != null ? kTextPrimary : kTextSecondary,
+                        size: 18),
+                    const SizedBox(width: 8),
+                    Text(
+                      closingLabel,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: _closingDate != null ? kTextPrimary : kTextSecondary,
+                      ),
                     ),
+                    if (_closingDate != null) ...[
+                      const Spacer(),
+                      GestureDetector(
+                        onTap: () => setState(() => _closingDate = null),
+                        child: const Icon(Icons.close, size: 16, color: kTextSecondary),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // ── Parties ──
+            Text('Parties', style: Theme.of(context).textTheme.labelLarge),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () => _pickBuyer(context),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                decoration: BoxDecoration(
+                  border: Border.all(color: kBorderColor),
+                  borderRadius: BorderRadius.circular(8),
+                  color: Colors.white,
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.person_outline,
+                        color: _buyer != null ? kTextPrimary : kTextSecondary,
+                        size: 18),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -376,17 +464,20 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
                     if (_buyer != null)
                       GestureDetector(
                         onTap: () => setState(() => _buyer = null),
-                        child: const Icon(
-                          Icons.close,
-                          size: 16,
-                          color: kTextSecondary,
-                        ),
+                        child: const Icon(Icons.close, size: 16, color: kTextSecondary),
                       ),
                   ],
                 ),
               ),
             ),
+            const SizedBox(height: 10),
+            TextFormField(
+              controller: _sellerCtrl,
+              decoration: const InputDecoration(labelText: 'Seller Name (optional)'),
+              textCapitalization: TextCapitalization.words,
+            ),
             const SizedBox(height: 24),
+
             SizedBox(
               width: double.infinity,
               child: FilledButton(
@@ -396,10 +487,7 @@ class _NewTransactionSheetState extends ConsumerState<NewTransactionSheet> {
                     ? const SizedBox(
                         width: 20,
                         height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                       )
                     : const Text('Create Transaction'),
               ),

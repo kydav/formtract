@@ -13,11 +13,7 @@ class AppShell extends ConsumerWidget {
   final String location;
   final Widget child;
 
-  const AppShell({
-    required this.location,
-    required this.child,
-    super.key,
-  });
+  const AppShell({required this.location, required this.child, super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -72,13 +68,6 @@ const _navItems = [
   ),
 ];
 
-String _titleForLocation(String location) {
-  if (location.startsWith('/transactions')) return 'Transactions';
-  if (location.startsWith('/templates')) return 'Templates';
-  if (location.startsWith('/contacts')) return 'Contacts';
-  return 'Dashboard';
-}
-
 // ─── Desktop shell ───────────────────────────────────────────────────────────
 
 class _DesktopShell extends StatelessWidget {
@@ -95,12 +84,7 @@ class _DesktopShell extends StatelessWidget {
         children: [
           _Sidebar(location: location),
           Expanded(
-            child: Column(
-              children: [
-                _DesktopTopBar(location: location),
-                Expanded(child: child),
-              ],
-            ),
+            child: Column(children: [Expanded(child: child)]),
           ),
         ],
       ),
@@ -320,58 +304,6 @@ class _SidebarNavItem extends StatelessWidget {
   }
 }
 
-// ─── Desktop top bar ─────────────────────────────────────────────────────────
-
-class _DesktopTopBar extends ConsumerWidget {
-  final String location;
-
-  const _DesktopTopBar({required this.location});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final auth = ref.watch(authNotifierProvider);
-
-    return Container(
-      height: 64,
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: kBorderColor)),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 28),
-      child: Row(
-        children: [
-          Text(
-            _titleForLocation(location),
-            style: Theme.of(context)
-                .textTheme
-                .titleLarge
-                ?.copyWith(fontSize: 17, color: kTextPrimary),
-          ),
-          const Spacer(),
-          FilledButton.icon(
-            onPressed: () {},
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('New Form'),
-          ),
-          const SizedBox(width: 16),
-          CircleAvatar(
-            radius: 18,
-            backgroundColor: kBlueAccent,
-            child: Text(
-              auth.userInitials,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ─── Mobile shell ─────────────────────────────────────────────────────────────
 
 class _MobileShell extends ConsumerWidget {
@@ -484,8 +416,11 @@ class _MobileShell extends ConsumerWidget {
                     color: kBlueAccent.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.receipt_long_outlined,
-                      color: kBlueAccent, size: 20),
+                  child: const Icon(
+                    Icons.receipt_long_outlined,
+                    color: kBlueAccent,
+                    size: 20,
+                  ),
                 ),
                 title: const Text('New Transaction'),
                 subtitle: const Text('Start a deal with a property address'),
@@ -497,8 +432,9 @@ class _MobileShell extends ConsumerWidget {
                     isScrollControlled: true,
                     backgroundColor: Colors.white,
                     shape: const RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(16)),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(16),
+                      ),
                     ),
                     builder: (_) => const NewTransactionSheet(),
                   );
@@ -512,8 +448,11 @@ class _MobileShell extends ConsumerWidget {
                     color: kSuccessGreen.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.person_add_outlined,
-                      color: kSuccessGreen, size: 20),
+                  child: const Icon(
+                    Icons.person_add_outlined,
+                    color: kSuccessGreen,
+                    size: 20,
+                  ),
                 ),
                 title: const Text('Add Contact'),
                 subtitle: const Text('Save a buyer, seller, or client'),
@@ -525,8 +464,9 @@ class _MobileShell extends ConsumerWidget {
                     isScrollControlled: true,
                     backgroundColor: Colors.white,
                     shape: const RoundedRectangleBorder(
-                      borderRadius:
-                          BorderRadius.vertical(top: Radius.circular(16)),
+                      borderRadius: BorderRadius.vertical(
+                        top: Radius.circular(16),
+                      ),
                     ),
                     builder: (_) => const AddContactSheet(),
                   );
@@ -540,11 +480,16 @@ class _MobileShell extends ConsumerWidget {
                     color: kWarningAmber.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.description_outlined,
-                      color: kWarningAmber, size: 20),
+                  child: const Icon(
+                    Icons.description_outlined,
+                    color: kWarningAmber,
+                    size: 20,
+                  ),
                 ),
                 title: const Text('Fill a Form'),
-                subtitle: const Text('Fill a standalone form without a transaction'),
+                subtitle: const Text(
+                  'Fill a standalone form without a transaction',
+                ),
                 onTap: () {
                   Navigator.pop(ctx);
                   context.go('/templates');
@@ -770,11 +715,7 @@ class _ProfileDrawer extends ConsumerWidget {
 
             // Sign out
             ListTile(
-              leading: const Icon(
-                Icons.logout,
-                size: 22,
-                color: Colors.red,
-              ),
+              leading: const Icon(Icons.logout, size: 22, color: Colors.red),
               title: const Text(
                 'Sign Out',
                 style: TextStyle(color: Colors.red),

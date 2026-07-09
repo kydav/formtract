@@ -17,10 +17,14 @@ class Transaction {
   final String boardId;
   final String? buyerContactId;
   final String? sellerContactId;
+  final String? sellerName;
   final String propertyAddress;
   final String? propertyCity;
   final String? propertyState;
   final String? propertyZip;
+  final String? propertyCounty;
+  final double? purchasePrice;
+  final DateTime? closingDate;
   final TransactionStatus status;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -34,9 +38,13 @@ class Transaction {
     required this.updatedAt,
     this.buyerContactId,
     this.sellerContactId,
+    this.sellerName,
     this.propertyCity,
     this.propertyState,
     this.propertyZip,
+    this.propertyCounty,
+    this.purchasePrice,
+    this.closingDate,
     this.status = TransactionStatus.draft,
   });
 
@@ -58,10 +66,14 @@ class Transaction {
       boardId: d['boardId'] as String,
       buyerContactId: d['buyerContactId'] as String?,
       sellerContactId: d['sellerContactId'] as String?,
+      sellerName: d['sellerName'] as String?,
       propertyAddress: d['propertyAddress'] as String? ?? '',
       propertyCity: d['propertyCity'] as String?,
       propertyState: d['propertyState'] as String?,
       propertyZip: d['propertyZip'] as String?,
+      propertyCounty: d['propertyCounty'] as String?,
+      purchasePrice: (d['purchasePrice'] as num?)?.toDouble(),
+      closingDate: (d['closingDate'] as Timestamp?)?.toDate(),
       status: TransactionStatus.values.firstWhere(
         (s) => s.name == (d['status'] as String? ?? 'draft'),
         orElse: () => TransactionStatus.draft,
@@ -76,10 +88,14 @@ class Transaction {
     'boardId': boardId,
     if (buyerContactId != null) 'buyerContactId': buyerContactId,
     if (sellerContactId != null) 'sellerContactId': sellerContactId,
+    if (sellerName != null) 'sellerName': sellerName,
     'propertyAddress': propertyAddress,
     if (propertyCity != null) 'propertyCity': propertyCity,
     if (propertyState != null) 'propertyState': propertyState,
     if (propertyZip != null) 'propertyZip': propertyZip,
+    if (propertyCounty != null) 'propertyCounty': propertyCounty,
+    if (purchasePrice != null) 'purchasePrice': purchasePrice,
+    if (closingDate != null) 'closingDate': Timestamp.fromDate(closingDate!),
     'status': status.name,
     'createdAt': Timestamp.fromDate(createdAt),
     'updatedAt': FieldValue.serverTimestamp(),
@@ -91,10 +107,14 @@ class Transaction {
     boardId: boardId,
     buyerContactId: buyerContactId,
     sellerContactId: sellerContactId,
+    sellerName: sellerName,
     propertyAddress: propertyAddress,
     propertyCity: propertyCity,
     propertyState: propertyState,
     propertyZip: propertyZip,
+    propertyCounty: propertyCounty,
+    purchasePrice: purchasePrice,
+    closingDate: closingDate,
     status: status ?? this.status,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
